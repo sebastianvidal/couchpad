@@ -65,8 +65,10 @@ struct ContentView: View {
         VStack(spacing: 8) {
             topBar
             trackpad
-            mouseButtons
-            KeyStripView(client: client, state: inputState)
+            if !inputState.keyboardShown {
+                mouseButtons.frame(height: 44)
+            }
+            KeyStripView(client: client, state: inputState, rowHeight: 42)
             keyInput
         }
     }
@@ -95,13 +97,21 @@ struct ContentView: View {
         }
     }
 
+    /// The key block is anchored at the top with fixed row heights and the column ignores the
+    /// keyboard, so the keys never move: the iOS keyboard simply covers the space below them.
+    /// That space holds the mouse buttons while the keyboard is hidden.
     private func landscapeControls(width: CGFloat) -> some View {
         VStack(spacing: 6) {
-            mouseButtons
-            KeyStripView(client: client, state: inputState, fillsHeight: true)
+            KeyStripView(client: client, state: inputState, rowHeight: 48)
+            if !inputState.keyboardShown {
+                mouseButtons.frame(maxHeight: .infinity)
+            } else {
+                Spacer(minLength: 0)
+            }
             keyInput
         }
         .frame(width: width)
+        .ignoresSafeArea(.keyboard)
     }
 
     private var keyInput: some View {
@@ -228,7 +238,6 @@ struct ContentView: View {
             HoldButton(label: "Left") { client.send("b l 1") } onUp: { client.send("b l 0") }
             HoldButton(label: "Right") { client.send("b r 1") } onUp: { client.send("b r 0") }
         }
-        .frame(height: 38)
     }
 
     private var settingsSheet: some View {

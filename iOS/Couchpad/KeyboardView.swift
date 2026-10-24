@@ -3,117 +3,148 @@ import SwiftUI
 struct Key: Identifiable {
     let id = UUID()
     let label: String
-    let code: Int            // macOS virtual keycode; -1 = blank spacer, -2 = "more keys" toggle
-    var width: CGFloat = 1
+    let code: Int            // macOS virtual keycode
+    var width: CGFloat = 1   // in grid columns
     var isModifier = false
     var symbol: String? = nil // SF Symbol instead of text
     var small = false
     var windowsLabel: String? = nil // text shown when the host is a PC; "" blanks the key
-
-    static let blank = Key(label: "", code: -1)
-    static let more = Key(label: "", code: -2)
-    var isBlank: Bool { code == -1 }
-    var isToggle: Bool { code == -2 }
 }
 
-/// The keys the iOS keyboard doesn't have, laid out like the corner of a real keyboard:
-/// esc top-left, delete top-right, modifiers along the bottom-left, a space bar, and the
-/// arrows in an inverted T at bottom-right. Plain keys send key-down on touch and key-up on
-/// release, so holding works in games. Modifiers toggle and stay held until tapped again.
+/// The keys the iOS keyboard doesn't have, laid out like the corner of a real keyboard, in
+/// seven columns with no empty cells:
+///
+///     esc  tab  fn   '   ⌫ ⌫ ⌫
+///      ⇧    ⌃    ⌥   ⌘   ←  ↑  →
+///        space (4)       ←  ↓  →      (← and → are one tall key each)
+///
+/// Above it, a slim "F1–F12" bar expands two rows of function keys. Row heights are fixed, so
+/// the block never changes size when the iOS keyboard appears. Plain keys send key-down on
+/// touch and key-up on release, so holding works in games. Modifiers toggle and stay held.
 struct KeyStripView: View {
     @ObservedObject var client: Client
     @ObservedObject var state: InputState
-    /// Rows stretch to share whatever height is available (landscape).
-    var fillsHeight = false
-    @State private var showExtras = false
+    var rowHeight: CGFloat = 42
+    @State private var showF = false
 
-    private static let columns: CGFloat = 7
+    private let gap: CGFloat = 4
+    private let columns: CGFloat = 7
+    private let barHeight: CGFloat = 28
 
-    private let baseRows: [[Key]] = [
-        [Key(label: "esc", code: 53, small: true),
-         Key(label: "", code: 48, symbol: "arrow.right.to.line"),
-         Key(label: "", code: 63, isModifier: true, symbol: "fn", small: true, windowsLabel: ""),
-         .more,
-         .blank,
-         Key(label: "", code: 51, width: 2, symbol: "delete.left")],
-        [Key(label: "", code: 56, isModifier: true, symbol: "shift"),
-         Key(label: "", code: 59, isModifier: true, symbol: "control", windowsLabel: "Ctrl"),
-         Key(label: "", code: 58, isModifier: true, symbol: "option", windowsLabel: "Alt"),
-         Key(label: "", code: 55, isModifier: true, symbol: "command", windowsLabel: "Win"),
-         .blank,
-         Key(label: "", code: 126, symbol: "arrowtriangle.up.fill"),
-         .blank],
-        [Key(label: "space", code: 49, width: 4, small: true),
-         Key(label: "", code: 123, symbol: "arrowtriangle.left.fill"),
-         Key(label: "", code: 125, symbol: "arrowtriangle.down.fill"),
-         Key(label: "", code: 124, symbol: "arrowtriangle.right.fill")],
+    private let topRow: [Key] = [
+        Key(label: "esc", code: 53, small: true),
+        Key(label: "", code: 48, symbol: "arrow.right.to.line"),
+        Key(label: "", code: 63, isModifier: true, symbol: "fn", small: true, windowsLabel: ""),
+        Key(label: "'", code: 39),
+        Key(label: "", code: 51, width: 3, symbol: "delete.left"),
     ]
-
-    private let extraRows: [[Key]] = [
+    private let modifierRow: [Key] = [
+        Key(label: "", code: 56, isModifier: true, symbol: "shift"),
+        Key(label: "", code: 59, isModifier: true, symbol: "control", windowsLabel: "Ctrl"),
+        Key(label: "", code: 58, isModifier: true, symbol: "option", windowsLabel: "Alt"),
+        Key(label: "", code: 55, isModifier: true, symbol: "command", windowsLabel: "Win"),
+    ]
+    private let spaceRow: [Key] = [Key(label: "space", code: 49, width: 4, small: true)]
+    private let left = Key(label: "", code: 123, symbol: "arrowtriangle.left.fill")
+    private let right = Key(label: "", code: 124, symbol: "arrowtriangle.right.fill")
+    private let up = Key(label: "", code: 126, symbol: "arrowtriangle.up.fill")
+    private let down = Key(label: "", code: 125, symbol: "arrowtriangle.down.fill")
+    private let fRows: [[Key]] = [
         [Key(label: "F1", code: 122, small: true), Key(label: "F2", code: 120, small: true), Key(label: "F3", code: 99, small: true), Key(label: "F4", code: 118, small: true), Key(label: "F5", code: 96, small: true), Key(label: "F6", code: 97, small: true), Key(label: "F7", code: 98, small: true)],
         [Key(label: "F8", code: 100, small: true), Key(label: "F9", code: 101, small: true), Key(label: "F10", code: 109, small: true), Key(label: "F11", code: 103, small: true), Key(label: "F12", code: 111, small: true), Key(label: "`", code: 50), Key(label: "⇪", code: 57)],
-        [Key(label: "q", code: 12), Key(label: "w", code: 13), Key(label: "e", code: 14), Key(label: "r", code: 15), Key(label: "f", code: 3), Key(label: "-", code: 27), Key(label: "=", code: 24)],
-        [Key(label: "a", code: 0), Key(label: "s", code: 1), Key(label: "d", code: 2), Key(label: "[", code: 33), Key(label: "]", code: 30), Key(label: ";", code: 41), Key(label: "'", code: 39)],
     ]
 
+    /// Fixed total height, so the parent can lay out around a block that never changes.
+    var height: CGFloat {
+        let rows: CGFloat = showF ? 5 : 3
+        return barHeight + gap + rows * rowHeight + (rows - 1) * gap
+    }
+
     var body: some View {
-        VStack(spacing: 6) {
-            HStack {
-                if !state.heldModifiers.isEmpty {
-                    Button("Release modifiers") { releaseModifiers() }
-                        .font(.caption)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .tint(.orange)
+        GeometryReader { geo in
+            let unit = (geo.size.width - gap * (columns - 1)) / columns
+            VStack(spacing: gap) {
+                fBar
+                if showF {
+                    ForEach(fRows.indices, id: \.self) { row(fRows[$0], unit: unit) }
                 }
-                Spacer()
+                row(topRow, unit: unit)
+                HStack(spacing: gap) {
+                    VStack(spacing: gap) {
+                        row(modifierRow, unit: unit)
+                        row(spaceRow, unit: unit)
+                    }
+                    .frame(width: unit * 4 + gap * 3)
+                    HStack(spacing: gap) {
+                        keyView(left).frame(width: unit, height: rowHeight * 2 + gap)
+                        VStack(spacing: gap) {
+                            keyView(up).frame(width: unit, height: rowHeight)
+                            keyView(down).frame(width: unit, height: rowHeight)
+                        }
+                        keyView(right).frame(width: unit, height: rowHeight * 2 + gap)
+                    }
+                }
+            }
+        }
+        .frame(height: height)
+    }
+
+    private var fBar: some View {
+        HStack(spacing: gap) {
+            Button {
+                showF.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: showF ? "chevron.down" : "chevron.up").font(.caption2)
+                    Text("F1–F12").font(.caption)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: barHeight)
+                .background(showF ? Color.accentColor.opacity(0.35) : Color(.secondarySystemBackground),
+                            in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .foregroundStyle(Color.primary)
+            }
+            .buttonStyle(.plain)
+            if !state.heldModifiers.isEmpty {
                 Button {
-                    state.keyboardShown.toggle()
+                    releaseModifiers()
                 } label: {
-                    Image(systemName: state.keyboardShown ? "keyboard.chevron.compact.down" : "keyboard")
+                    Text("Release")
+                        .font(.caption)
+                        .padding(.horizontal, 10)
+                        .frame(height: barHeight)
+                        .background(Color.orange.opacity(0.35), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .foregroundStyle(Color.primary)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(.plain)
             }
-            if showExtras {
-                ForEach(extraRows.indices, id: \.self) { row(extraRows[$0]) }
+            Button {
+                state.keyboardShown.toggle()
+            } label: {
+                Image(systemName: state.keyboardShown ? "keyboard.chevron.compact.down" : "keyboard")
+                    .padding(.horizontal, 12)
+                    .frame(height: barHeight)
+                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .foregroundStyle(Color.primary)
             }
-            ForEach(baseRows.indices, id: \.self) { row(baseRows[$0]) }
+            .buttonStyle(.plain)
+            .accessibilityLabel(state.keyboardShown ? "Hide keyboard" : "Show keyboard")
         }
     }
 
-    private func row(_ keys: [Key]) -> some View {
-        GeometryReader { geo in
-            let gap: CGFloat = 4
-            let unit = (geo.size.width - gap * (KeyStripView.columns - 1)) / KeyStripView.columns
-            HStack(spacing: gap) {
-                ForEach(keys) { key in
-                    keyView(key)
-                        .frame(width: unit * key.width + gap * (key.width - 1), height: geo.size.height)
-                }
+    private func row(_ keys: [Key], unit: CGFloat) -> some View {
+        HStack(spacing: gap) {
+            ForEach(keys) { key in
+                keyView(key).frame(width: unit * key.width + gap * (key.width - 1), height: rowHeight)
             }
         }
-        .frame(minHeight: 36, maxHeight: fillsHeight ? .infinity : 42)
     }
 
     @ViewBuilder
     private func keyView(_ key: Key) -> some View {
         let windows = client.hostPlatform == .windows
-        if key.isBlank || (windows && key.windowsLabel == "") {
+        if windows && key.windowsLabel == "" {
             Color.clear
-        } else if key.isToggle {
-            Button {
-                showExtras.toggle()
-            } label: {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(showExtras ? Color.accentColor.opacity(0.35) : Color(.secondarySystemBackground))
-                    Image(systemName: showExtras ? "chevron.down" : "ellipsis")
-                        .foregroundStyle(Color.primary)
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(showExtras ? "Hide extra keys" : "More keys")
         } else {
             KeyButton(key: key, isHeld: state.heldModifiers.contains(key.code), windows: windows) {
                 press(key)
