@@ -10,6 +10,7 @@ final class AppSettings: ObservableObject {
     @Published var manualHost: String { didSet { save("manualHost", manualHost) } }
     @Published var controllerLookSpeed: Double { didSet { save("controllerLookSpeed", controllerLookSpeed) } }
     @Published var controllerInvertY: Bool { didSet { save("controllerInvertY", controllerInvertY) } }
+    @Published var trackpadOnRight: Bool { didSet { save("trackpadOnRight", trackpadOnRight) } }
 
     init() {
         let d = UserDefaults.standard
@@ -21,6 +22,7 @@ final class AppSettings: ObservableObject {
         manualHost = d.string(forKey: "manualHost") ?? ""
         controllerLookSpeed = d.object(forKey: "controllerLookSpeed") as? Double ?? 10
         controllerInvertY = d.object(forKey: "controllerInvertY") as? Bool ?? false
+        trackpadOnRight = d.object(forKey: "trackpadOnRight") as? Bool ?? false
     }
 
     private func save(_ key: String, _ value: Any) {

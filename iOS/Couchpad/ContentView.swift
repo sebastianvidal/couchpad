@@ -71,23 +71,37 @@ struct ContentView: View {
         }
     }
 
-    /// Trackpad on the left, everything else in a column on the right.
+    /// Trackpad on one side (your choice), everything else in a column on the other. The key
+    /// rows stretch to use the column's full height, so with the iOS keyboard hidden the keys
+    /// are large.
     private var landscapeBody: some View {
         GeometryReader { geo in
             HStack(spacing: 10) {
-                VStack(spacing: 6) {
-                    topBar
-                    trackpad
+                if settings.trackpadOnRight {
+                    landscapeControls(width: max(300, geo.size.width * 0.42))
+                    landscapeTrackpad
+                } else {
+                    landscapeTrackpad
+                    landscapeControls(width: max(300, geo.size.width * 0.42))
                 }
-                VStack(spacing: 6) {
-                    mouseButtons
-                    KeyStripView(client: client, state: inputState, compact: true)
-                    Spacer(minLength: 0)
-                    keyInput
-                }
-                .frame(width: max(300, geo.size.width * 0.42))
             }
         }
+    }
+
+    private var landscapeTrackpad: some View {
+        VStack(spacing: 6) {
+            topBar
+            trackpad
+        }
+    }
+
+    private func landscapeControls(width: CGFloat) -> some View {
+        VStack(spacing: 6) {
+            mouseButtons
+            KeyStripView(client: client, state: inputState, fillsHeight: true)
+            keyInput
+        }
+        .frame(width: width)
     }
 
     private var keyInput: some View {
@@ -232,6 +246,7 @@ struct ContentView: View {
                     Toggle("Natural scrolling", isOn: $settings.naturalScroll)
                     Toggle("Tap, then touch-and-hold to drag", isOn: $settings.tapToDrag)
                     Toggle("Three-finger swipes (Mission Control, Spaces)", isOn: $settings.threeFingerSwipes)
+                    Toggle("Trackpad on the right (landscape)", isOn: $settings.trackpadOnRight)
                 }
                 Section("Controller") {
                     if let name = controller.controllerName {
