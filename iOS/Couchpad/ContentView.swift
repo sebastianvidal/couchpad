@@ -99,7 +99,7 @@ struct ContentView: View {
                 // Distance from our bottom edge up to the keyboard's top edge, in the same coordinates.
                 let bottom = geo.frame(in: .global).maxY
                 let keyboardTop = landscapeKeyboardTop > 0 ? landscapeKeyboardTop : bottom - geo.size.height * 0.40
-                let inset = max(0, bottom - keyboardTop)
+                let inset = max(0, bottom - keyboardTop + 8)   // 8pt of air above the keyboard, like every other gap
                 HStack(spacing: 10) {
                     if settings.trackpadOnRight {
                         landscapeControls(width: max(300, geo.size.width * 0.42), above: geo.size.height - inset)
