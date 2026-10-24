@@ -28,7 +28,6 @@ struct ContentView: View {
         .onAppear {
             controller.client = client
             controller.settings = settings
-            inputState.keyboardShown = !isLandscape   // launched sideways: keyboard starts hidden
             client.startBrowsing()
             UIApplication.shared.isIdleTimerDisabled = true
             if !hasSeenSetup {
@@ -49,8 +48,9 @@ struct ContentView: View {
         .onChange(of: showSetup) { _, _ in syncKeyboardSuspension() }
         .onChange(of: showSettings) { _, _ in syncKeyboardSuspension() }
         .onChange(of: showScanner) { _, _ in syncKeyboardSuspension() }
-        .onChange(of: isLandscape) { _, landscape in
+        .onChange(of: isLandscape, initial: true) { _, landscape in
             // Sideways (a Backbone, say) the iOS keyboard would cover half the screen: start hidden.
+            // `initial: true` covers launching already sideways, when onAppear sees no size class yet.
             inputState.keyboardShown = !landscape
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -78,23 +78,19 @@ struct ContentView: View {
     /// rows stretch to use the column's full height, so with the iOS keyboard hidden the keys
     /// are large.
     private var landscapeBody: some View {
-        GeometryReader { geo in
-            HStack(spacing: 10) {
-                if settings.trackpadOnRight {
-                    landscapeControls(width: max(300, geo.size.width * 0.42))
-                    landscapeTrackpad
-                } else {
-                    landscapeTrackpad
-                    landscapeControls(width: max(300, geo.size.width * 0.42))
-                }
-            }
-        }
-    }
-
-    private var landscapeTrackpad: some View {
         VStack(spacing: 6) {
             topBar
-            trackpad
+            GeometryReader { geo in
+                HStack(spacing: 10) {
+                    if settings.trackpadOnRight {
+                        landscapeControls(width: max(300, geo.size.width * 0.42))
+                        trackpad
+                    } else {
+                        trackpad
+                        landscapeControls(width: max(300, geo.size.width * 0.42))
+                    }
+                }
+            }
         }
     }
 
