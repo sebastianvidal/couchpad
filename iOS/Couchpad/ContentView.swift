@@ -28,6 +28,7 @@ struct ContentView: View {
         .onAppear {
             controller.client = client
             controller.settings = settings
+            inputState.keyboardShown = !isLandscape   // launched sideways: keyboard starts hidden
             client.startBrowsing()
             UIApplication.shared.isIdleTimerDisabled = true
             if !hasSeenSetup {
