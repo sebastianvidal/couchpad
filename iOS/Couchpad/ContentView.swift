@@ -82,7 +82,7 @@ struct ContentView: View {
                 mouseButtons.frame(height: 44)
             }
             KeyStripView(client: client, state: inputState, rowHeight: 42)
-            keyInput
+                .background(keyInput)   // zero footprint: it must not add height below the keys
         }
     }
 
@@ -122,12 +122,12 @@ struct ContentView: View {
         return VStack(spacing: 6) {
             KeyStripView(client: client, state: inputState, rowHeight: rowHeight,
                          replacesRowsWhenExpanded: inputState.keyboardShown)
+                .background(keyInput)   // zero footprint: it must not add height below the keys
             if !inputState.keyboardShown {
                 mouseButtons.frame(maxHeight: .infinity)
             } else {
                 Spacer(minLength: 0)
             }
-            keyInput
         }
         .frame(width: width)
     }
