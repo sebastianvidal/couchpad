@@ -13,6 +13,7 @@ captions = [
     ("a-main.png",  "01-landscape.png",       "Sideways, with a controller",    "Trackpad on one side, keys and mouse buttons on the other."),
     ("b-fkeys.png", "02-landscape-fkeys.png", "F1–F12 one tap away",             "The key block never moves when the keyboard comes up."),
     ("c-right.png", "03-landscape-right.png", "Trackpad left or right",          "Pick the side that suits your thumb."),
+    ("d-keyboard.png", "04-landscape-keyboard.png", "Type when you need to",     "The keys stay where they are; the keyboard slides in underneath."),
 ]
 
 def font(size, bold=False):

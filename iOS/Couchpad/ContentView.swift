@@ -13,6 +13,9 @@ struct ContentView: View {
     private var isLandscape: Bool { verticalSizeClass == .compact }
     @State private var showSetup = false
     @State private var showScanner = false
+    /// Top edge of the iOS keyboard in landscape (screen coordinates), measured the first
+    /// time it appears and remembered, so the key block can end exactly where it begins.
+    @AppStorage("landscapeKeyboardTop") private var landscapeKeyboardTop: Double = 0
 
     var body: some View {
         Group {
@@ -24,6 +27,9 @@ struct ContentView: View {
         }
         .padding(.horizontal, 8)
         .padding(.bottom, 8)
+        // Keyboard avoidance is applied at the root, so it has to be switched off here:
+        // sideways, nothing moves for the keyboard (the trackpad is inset by hand instead).
+        .ignoresSafeArea(isLandscape ? .keyboard : [])
         .background(Color(.systemBackground))
         .onAppear {
             controller.client = client
@@ -48,6 +54,12 @@ struct ContentView: View {
         .onChange(of: showSetup) { _, _ in syncKeyboardSuspension() }
         .onChange(of: showSettings) { _, _ in syncKeyboardSuspension() }
         .onChange(of: showScanner) { _, _ in syncKeyboardSuspension() }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
+            guard let frame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
+            let screen = UIScreen.main.bounds
+            guard isLandscape, frame.minY > screen.height * 0.3, frame.minY < screen.height else { return }
+            landscapeKeyboardTop = frame.minY
+        }
         .onChange(of: isLandscape, initial: true) { _, landscape in
             // Sideways (a Backbone, say) the iOS keyboard would cover half the screen: start hidden.
             // `initial: true` covers launching already sideways, when onAppear sees no size class yet.
@@ -77,17 +89,24 @@ struct ContentView: View {
     /// Trackpad on one side (your choice), everything else in a column on the other. The key
     /// rows stretch to use the column's full height, so with the iOS keyboard hidden the keys
     /// are large.
+    /// Nothing here moves for the keyboard: the whole body ignores it, and instead the
+    /// trackpad is inset by the keyboard's height while it is up. The key block is sized to
+    /// end on that same line, so block bottom, trackpad bottom and keyboard top coincide.
     private var landscapeBody: some View {
         VStack(spacing: 6) {
             topBar
             GeometryReader { geo in
+                // Distance from our bottom edge up to the keyboard's top edge, in the same coordinates.
+                let bottom = geo.frame(in: .global).maxY
+                let keyboardTop = landscapeKeyboardTop > 0 ? landscapeKeyboardTop : bottom - geo.size.height * 0.40
+                let inset = max(0, bottom - keyboardTop)
                 HStack(spacing: 10) {
                     if settings.trackpadOnRight {
-                        landscapeControls(width: max(300, geo.size.width * 0.42))
-                        trackpad
+                        landscapeControls(width: max(300, geo.size.width * 0.42), above: geo.size.height - inset)
+                        trackpad.padding(.bottom, inputState.keyboardShown ? inset : 0)
                     } else {
-                        trackpad
-                        landscapeControls(width: max(300, geo.size.width * 0.42))
+                        trackpad.padding(.bottom, inputState.keyboardShown ? inset : 0)
+                        landscapeControls(width: max(300, geo.size.width * 0.42), above: geo.size.height - inset)
                     }
                 }
             }
@@ -97,9 +116,11 @@ struct ContentView: View {
     /// The key block is anchored at the top with fixed row heights and the column ignores the
     /// keyboard, so the keys never move: the iOS keyboard simply covers the space below them.
     /// That space holds the mouse buttons while the keyboard is hidden.
-    private func landscapeControls(width: CGFloat) -> some View {
-        VStack(spacing: 6) {
-            KeyStripView(client: client, state: inputState, rowHeight: 48)
+    private func landscapeControls(width: CGFloat, above: CGFloat) -> some View {
+        // Rows fill the space above the keyboard line exactly: bar + 3 rows + gaps = `above`.
+        let rowHeight = min(80, max(36, (above - 28 - 4 * 4) / 3))
+        return VStack(spacing: 6) {
+            KeyStripView(client: client, state: inputState, rowHeight: rowHeight)
             if !inputState.keyboardShown {
                 mouseButtons.frame(maxHeight: .infinity)
             } else {
@@ -108,7 +129,6 @@ struct ContentView: View {
             keyInput
         }
         .frame(width: width)
-        .ignoresSafeArea(.keyboard)
     }
 
     private var keyInput: some View {
