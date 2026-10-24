@@ -117,10 +117,11 @@ struct ContentView: View {
     /// keyboard, so the keys never move: the iOS keyboard simply covers the space below them.
     /// That space holds the mouse buttons while the keyboard is hidden.
     private func landscapeControls(width: CGFloat, above: CGFloat) -> some View {
-        // Rows fill the space above the keyboard line exactly: bar + 3 rows + gaps = `above`.
-        let rowHeight = min(80, max(36, (above - 28 - 4 * 4) / 3))
+        // Rows fill the space above the keyboard line exactly: bar + gap + 3 rows + 2 gaps = `above`.
+        let rowHeight = min(80, max(36, (above - 28 - 3 * 4) / 3))
         return VStack(spacing: 6) {
-            KeyStripView(client: client, state: inputState, rowHeight: rowHeight)
+            KeyStripView(client: client, state: inputState, rowHeight: rowHeight,
+                         replacesRowsWhenExpanded: inputState.keyboardShown)
             if !inputState.keyboardShown {
                 mouseButtons.frame(maxHeight: .infinity)
             } else {

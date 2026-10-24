@@ -25,6 +25,9 @@ struct KeyStripView: View {
     @ObservedObject var client: Client
     @ObservedObject var state: InputState
     var rowHeight: CGFloat = 42
+    /// When the iOS keyboard is out there is no room to grow: the F-bar then swaps the
+    /// three main rows for the two F-key rows in the same space instead of adding rows.
+    var replacesRowsWhenExpanded = false
     @State private var showF = false
 
     private let gap: CGFloat = 4
@@ -56,15 +59,21 @@ struct KeyStripView: View {
 
     /// Fixed total height, so the parent can lay out around a block that never changes.
     var height: CGFloat {
-        let rows: CGFloat = showF ? 5 : 3
+        let rows: CGFloat = (showF && !replacesRowsWhenExpanded) ? 5 : 3
         return barHeight + gap + rows * rowHeight + (rows - 1) * gap
     }
+
+    /// Two F rows standing in for three main rows share their exact height.
+    private var swappedRowHeight: CGFloat { (3 * rowHeight + 2 * gap - gap) / 2 }
 
     var body: some View {
         GeometryReader { geo in
             let unit = (geo.size.width - gap * (columns - 1)) / columns
             VStack(spacing: gap) {
                 fBar
+                if showF && replacesRowsWhenExpanded {
+                    ForEach(fRows.indices, id: \.self) { row(fRows[$0], unit: unit, height: swappedRowHeight) }
+                } else {
                 if showF {
                     ForEach(fRows.indices, id: \.self) { row(fRows[$0], unit: unit) }
                 }
@@ -83,6 +92,7 @@ struct KeyStripView: View {
                         }
                         keyView(right).frame(width: unit, height: rowHeight * 2 + gap)
                     }
+                }
                 }
             }
         }
@@ -132,10 +142,10 @@ struct KeyStripView: View {
         }
     }
 
-    private func row(_ keys: [Key], unit: CGFloat) -> some View {
+    private func row(_ keys: [Key], unit: CGFloat, height: CGFloat? = nil) -> some View {
         HStack(spacing: gap) {
             ForEach(keys) { key in
-                keyView(key).frame(width: unit * key.width + gap * (key.width - 1), height: rowHeight)
+                keyView(key).frame(width: unit * key.width + gap * (key.width - 1), height: height ?? rowHeight)
             }
         }
     }
