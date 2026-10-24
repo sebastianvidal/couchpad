@@ -16,6 +16,8 @@ struct Key: Identifiable {
 struct KeyStripView: View {
     @ObservedObject var client: Client
     @ObservedObject var state: InputState
+    /// In a narrow column (landscape) rows are split in two so keys stay tappable.
+    var compact = false
     @State private var showExtras = false
 
     private let strip: [Key] = [
@@ -69,11 +71,17 @@ struct KeyStripView: View {
                 .controlSize(.small)
             }
             if showExtras {
-                row(fKeys)
-                row(gameKeys)
+                ForEach(split(fKeys), id: \.first!.id) { row($0) }
+                ForEach(split(gameKeys), id: \.first!.id) { row($0) }
             }
-            row(strip)
+            ForEach(split(strip), id: \.first!.id) { row($0) }
         }
+    }
+
+    private func split(_ keys: [Key]) -> [[Key]] {
+        guard compact, keys.count > 6 else { return [keys] }
+        let half = (keys.count + 1) / 2
+        return [Array(keys[..<half]), Array(keys[half...])]
     }
 
     private func row(_ allKeys: [Key]) -> some View {

@@ -9,18 +9,18 @@ struct ContentView: View {
     @State private var pairingCode = ""
     @AppStorage("hasSeenSetup") private var hasSeenSetup = false
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    private var isLandscape: Bool { verticalSizeClass == .compact }
     @State private var showSetup = false
     @State private var showScanner = false
 
     var body: some View {
-        VStack(spacing: 8) {
-            topBar
-            trackpad
-            mouseButtons
-            KeyStripView(client: client, state: inputState)
-            KeyInputView(client: client, state: inputState)
-                .frame(width: 1, height: 1)
-                .opacity(0.01)
+        Group {
+            if isLandscape {
+                landscapeBody
+            } else {
+                portraitBody
+            }
         }
         .padding(.horizontal, 8)
         .padding(.bottom, 8)
@@ -48,6 +48,10 @@ struct ContentView: View {
         .onChange(of: showSetup) { _, _ in syncKeyboardSuspension() }
         .onChange(of: showSettings) { _, _ in syncKeyboardSuspension() }
         .onChange(of: showScanner) { _, _ in syncKeyboardSuspension() }
+        .onChange(of: isLandscape) { _, landscape in
+            // Sideways (a Backbone, say) the iOS keyboard would cover half the screen: start hidden.
+            inputState.keyboardShown = !landscape
+        }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .background: controller.releaseAll(); client.appDidEnterBackground()
@@ -55,6 +59,41 @@ struct ContentView: View {
             default: break
             }
         }
+    }
+
+    private var portraitBody: some View {
+        VStack(spacing: 8) {
+            topBar
+            trackpad
+            mouseButtons
+            KeyStripView(client: client, state: inputState)
+            keyInput
+        }
+    }
+
+    /// Trackpad on the left, everything else in a column on the right.
+    private var landscapeBody: some View {
+        GeometryReader { geo in
+            HStack(spacing: 10) {
+                VStack(spacing: 6) {
+                    topBar
+                    trackpad
+                }
+                VStack(spacing: 6) {
+                    mouseButtons
+                    KeyStripView(client: client, state: inputState, compact: true)
+                    Spacer(minLength: 0)
+                    keyInput
+                }
+                .frame(width: max(300, geo.size.width * 0.42))
+            }
+        }
+    }
+
+    private var keyInput: some View {
+        KeyInputView(client: client, state: inputState)
+            .frame(width: 1, height: 1)
+            .opacity(0.01)
     }
 
     private var topBar: some View {
