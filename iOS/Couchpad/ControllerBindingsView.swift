@@ -37,7 +37,9 @@ private struct PresetSection: View {
                     Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            Text("Pick a preset, then change any control below. Changes apply immediately.")
+            Text(controller.controllerName == nil
+                 ? "Pick a preset, then change any control below. Connect a controller to see its own button names."
+                 : "Pick a preset, then change any control below. Names are as \(controller.controllerName!) reports them.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -50,7 +52,7 @@ private struct ControlRow: View {
 
     var body: some View {
         NavigationLink {
-            ActionPicker(control: control, current: controller.profile[control]) { action in
+            ActionPicker(title: controller.name(for: control), control: control, current: controller.profile[control]) { action in
                 var profile = controller.profile
                 profile[control] = action
                 if ControllerProfile.presets.contains(where: { $0.name == profile.name }) {
@@ -59,8 +61,11 @@ private struct ControlRow: View {
                 controller.profile = profile
             }
         } label: {
-            HStack {
-                Text(control.label)
+            HStack(spacing: 10) {
+                if let symbol = controller.symbol(for: control) {
+                    Image(systemName: symbol).frame(width: 26).foregroundStyle(Color.accentColor)
+                }
+                Text(controller.name(for: control))
                 Spacer()
                 Text(controller.profile[control].label).foregroundStyle(.secondary)
             }
@@ -69,6 +74,7 @@ private struct ControlRow: View {
 }
 
 private struct ActionPicker: View {
+    let title: String
     let control: Control
     let current: ControlAction
     let onPick: (ControlAction) -> Void
@@ -90,7 +96,7 @@ private struct ActionPicker: View {
                 }
             }
         }
-        .navigationTitle(control.label)
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
     }
 

@@ -13,6 +13,9 @@ import GameController
 @MainActor
 final class ControllerBridge: ObservableObject {
     @Published private(set) var controllerName: String?
+    /// Per-control name and SF Symbol as the connected pad reports them (✕ ○ △ □ on a
+    /// PlayStation layout, A B X Y on Xbox, LB/RB vs L1/R1, …). Empty when nothing is connected.
+    @Published private(set) var labels: [Control: (name: String, symbol: String?)] = [:]
     @Published var profile = ControllerProfile.load() {
         didSet {
             profile.save()
@@ -56,6 +59,7 @@ final class ControllerBridge: ObservableObject {
         guard controller.extendedGamepad != nil else { return }
         self.controller = controller
         controllerName = controller.vendorName ?? "Controller"
+        labels = ControllerBridge.labels(for: controller.extendedGamepad!)
         timer?.invalidate()
         // Poll at 60 Hz: simpler than per-element handlers and the sticks need a frame clock anyway.
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
@@ -69,6 +73,38 @@ final class ControllerBridge: ObservableObject {
         releaseAll()
         controller = nil
         controllerName = nil
+        labels = [:]
+    }
+
+    /// The pad's own names for its buttons, so the UI matches what is printed on the plastic.
+    private static func labels(for pad: GCExtendedGamepad) -> [Control: (name: String, symbol: String?)] {
+        func entry(_ element: GCControllerElement?, fallback: String) -> (String, String?) {
+            (element?.localizedName ?? fallback, element?.sfSymbolsName)
+        }
+        var out: [Control: (name: String, symbol: String?)] = [
+            .a: entry(pad.buttonA, fallback: "A"),
+            .b: entry(pad.buttonB, fallback: "B"),
+            .x: entry(pad.buttonX, fallback: "X"),
+            .y: entry(pad.buttonY, fallback: "Y"),
+            .l1: entry(pad.leftShoulder, fallback: "L1"),
+            .r1: entry(pad.rightShoulder, fallback: "R1"),
+            .l2: entry(pad.leftTrigger, fallback: "L2"),
+            .r2: entry(pad.rightTrigger, fallback: "R2"),
+            .menu: entry(pad.buttonMenu, fallback: "Menu"),
+        ]
+        if let options = pad.buttonOptions { out[.options] = entry(options, fallback: "Options") }
+        if let l3 = pad.leftThumbstickButton { out[.l3] = entry(l3, fallback: "L3") }
+        if let r3 = pad.rightThumbstickButton { out[.r3] = entry(r3, fallback: "R3") }
+        return out
+    }
+
+    /// Display name for a control: the pad's own when connected, a generic one otherwise.
+    func name(for control: Control) -> String {
+        labels[control]?.name ?? control.label
+    }
+
+    func symbol(for control: Control) -> String? {
+        labels[control]?.symbol
     }
 
     /// Lets go of everything, e.g. when the app leaves the foreground.
