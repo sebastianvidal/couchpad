@@ -54,5 +54,19 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   To watch the wire during tests, run a logging TCP proxy on another port and pair through it
   with a `couchpad://pair?...&port=<proxy>` URL; expect only the two `v2` lines in the clear.
 
+## iPhone Duo (foldable)
+- Needs the iOS 27.1+ SDK (we build with Xcode 27.2). Xcode 27 has no Simulator.app: simulators
+  live in `Xcode.app/Contents/Applications/DeviceHub.app` (bundle `com.apple.dt.Devices`), whose
+  bottom toolbar has Closed / Partially Open / Open posture buttons and Controls → Rotate.
+- Duo device type `com.apple.CoreSimulator.SimDeviceType.iPhone-Duo`, runtime
+  `iOS-27-2-iPhone19-4`. Two displays: outer 1398×2034 (`simctl io … --display=1`), inner
+  2007×2853 (`--display=3`); `screenshot` needs `--display` on this device. Don't toggle
+  `screenConfig power` to fake a posture: it blanks both displays until a reboot.
+- Layout keys off the window's shape (`windowSize` in ContentView), not the vertical size
+  class: unfolded and sideways the size class stays regular. `UIScreen.main` is gone; the
+  landscape keyboard-top measurement is stored per window size (`landscapeKeyboardTops`).
+- The system puts a vertical status bar on one long edge; it arrives as a safe-area inset,
+  so nothing in the app should assume insets are symmetric or orientation-bound.
+
 ## Commits
 Attribution trailer per the session's reminder. Push to `main` directly; no PRs needed for now.

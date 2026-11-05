@@ -8,7 +8,7 @@ code or QR, and talks to it over one encrypted TCP connection on your network.
 
 **Status (October 2026)**
 - **iPhone:** public **TestFlight beta** — https://testflight.apple.com/join/kY67K51G — ahead
-  of a free App Store release.
+  of a free App Store release. Supports iPhone Duo, folded or unfolded, in both orientations.
 - **Mac:** **1.1 released**, signed and notarized —
   [download](https://github.com/sebastianvidal/couchpad/releases/latest). 1.1 brings encrypted
   sessions and hardened pairing; it needs the current iPhone build.

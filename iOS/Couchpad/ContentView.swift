@@ -9,13 +9,17 @@ struct ContentView: View {
     @State private var pairingCode = ""
     @AppStorage("hasSeenSetup") private var hasSeenSetup = false
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-    private var isLandscape: Bool { verticalSizeClass == .compact }
+    /// The window's full size (safe areas and keyboard included), measured from the root.
+    /// Layout follows its shape, not the size class: on an unfolded iPhone Duo the vertical
+    /// size class stays regular sideways, yet the space is wide and wants the sideways layout.
+    @State private var windowSize = CGSize.zero
+    private var isLandscape: Bool { windowSize.width > windowSize.height }
     @State private var showSetup = false
     @State private var showScanner = false
-    /// Top edge of the iOS keyboard in landscape (screen coordinates), measured the first
-    /// time it appears and remembered, so the key block can end exactly where it begins.
-    @AppStorage("landscapeKeyboardTop") private var landscapeKeyboardTop: Double = 0
+    /// Top edge of the iOS keyboard in landscape (window coordinates), measured the first
+    /// time it appears and remembered per window size, so the key block can end exactly where
+    /// it begins. Keyed by size because a foldable has two displays with different keyboards.
+    @AppStorage("landscapeKeyboardTops") private var landscapeKeyboardTops = ""
 
     var body: some View {
         Group {
@@ -31,6 +35,14 @@ struct ContentView: View {
         // sideways, nothing moves for the keyboard (the trackpad is inset by hand instead).
         .ignoresSafeArea(isLandscape ? .keyboard : [])
         .background(Color(.systemBackground))
+        .background(
+            // Measures the whole window, ignoring the keyboard and the safe areas, so the
+            // portrait/landscape decision never flips because a keyboard came up.
+            GeometryReader { geo in
+                Color.clear.onChange(of: geo.size, initial: true) { _, size in windowSize = size }
+            }
+            .ignoresSafeArea()
+        )
         .onAppear {
             controller.client = client
             controller.settings = settings
@@ -56,9 +68,13 @@ struct ContentView: View {
         .onChange(of: showScanner) { _, _ in syncKeyboardSuspension() }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
             guard let frame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
-            let screen = UIScreen.main.bounds
-            guard isLandscape, frame.minY > screen.height * 0.3, frame.minY < screen.height else { return }
-            landscapeKeyboardTop = frame.minY
+            // The frame is in screen coordinates; on a phone the window fills the screen.
+            guard isLandscape, frame.minY > windowSize.height * 0.3, frame.minY < windowSize.height else { return }
+            var tops = keyboardTops
+            tops[sizeKey] = frame.minY
+            if let data = try? JSONEncoder().encode(tops), let json = String(data: data, encoding: .utf8) {
+                landscapeKeyboardTops = json
+            }
         }
         .onChange(of: isLandscape, initial: true) { _, landscape in
             // Sideways (a Backbone, say) the iOS keyboard would cover half the screen: start hidden.
@@ -74,6 +90,21 @@ struct ContentView: View {
         }
     }
 
+    private var keyboardTops: [String: Double] {
+        guard let data = landscapeKeyboardTops.data(using: .utf8),
+              let tops = try? JSONDecoder().decode([String: Double].self, from: data) else { return [:] }
+        return tops
+    }
+
+    private var sizeKey: String { "\(Int(windowSize.width))x\(Int(windowSize.height))" }
+
+    /// Taller keys on a wide portrait window (an unfolded iPhone Duo), so they keep roughly
+    /// the proportions they have on a phone instead of turning into flat bars.
+    private var portraitRowHeight: CGFloat {
+        let unit = (windowSize.width - 16 - 6 * 4) / 7
+        return min(58, max(42, unit * 0.65))
+    }
+
     private var portraitBody: some View {
         VStack(spacing: 8) {
             topBar
@@ -81,7 +112,7 @@ struct ContentView: View {
             if !inputState.keyboardShown {
                 mouseButtons.frame(height: 44)
             }
-            KeyStripView(client: client, state: inputState, rowHeight: 42)
+            KeyStripView(client: client, state: inputState, rowHeight: portraitRowHeight)
                 .background(keyInput)   // zero footprint: it must not add height below the keys
         }
     }
@@ -98,7 +129,7 @@ struct ContentView: View {
             GeometryReader { geo in
                 // Distance from our bottom edge up to the keyboard's top edge, in the same coordinates.
                 let bottom = geo.frame(in: .global).maxY
-                let keyboardTop = landscapeKeyboardTop > 0 ? landscapeKeyboardTop : bottom - geo.size.height * 0.40
+                let keyboardTop = keyboardTops[sizeKey] ?? (bottom - geo.size.height * 0.40)
                 let inset = max(0, bottom - keyboardTop + 8)   // 8pt of air above the keyboard, like every other gap
                 HStack(spacing: 10) {
                     if settings.trackpadOnRight {
@@ -119,6 +150,9 @@ struct ContentView: View {
     private func landscapeControls(width: CGFloat, above: CGFloat) -> some View {
         // Rows fill the space above the keyboard line exactly: bar + gap + 3 rows + 2 gaps = `above`.
         let rowHeight = min(80, max(36, (above - 28 - 3 * 4) / 3))
+        // On a large display (an unfolded iPhone Duo) the rows hit their cap and leave room
+        // above the keyboard line; the mouse buttons take it rather than leaving a hole.
+        let spare = above - (28 + 4 + 3 * rowHeight + 2 * 4) - 6
         return VStack(spacing: 6) {
             KeyStripView(client: client, state: inputState, rowHeight: rowHeight,
                          replacesRowsWhenExpanded: inputState.keyboardShown)
@@ -126,7 +160,10 @@ struct ContentView: View {
             if !inputState.keyboardShown {
                 mouseButtons.frame(maxHeight: .infinity)
             } else {
-                Spacer(minLength: 0)
+                if spare >= 56 {
+                    mouseButtons.frame(height: spare)
+                }
+                Spacer(minLength: 0)   // keeps the column pinned to the top; the keyboard covers this
             }
         }
         .frame(width: width)
@@ -189,17 +226,25 @@ struct ContentView: View {
                     Text("Open Couchpad on your Mac or PC\n(same Wi-Fi)")
                         .multilineTextAlignment(.center)
                         .font(.footnote)
-                    HStack {
-                        Button("How to set up") { showSetup = true }
-                        Button("Scan QR code", systemImage: "qrcode.viewfinder") { showScanner = true }
+                    // Side by side where they fit (portrait), stacked on a narrow trackpad
+                    // (a folded iPhone Duo held sideways).
+                    ViewThatFits(in: .horizontal) {
+                        HStack { setupButtons }.fixedSize()   // report the real width, so "fits" means fits
+                        VStack { setupButtons }
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
+                .padding(.horizontal, 16)   // the buttons stack rather than touch the edges
                 .foregroundStyle(.secondary)
             }
         }
         .frame(maxHeight: .infinity)
+    }
+
+    @ViewBuilder private var setupButtons: some View {
+        Button("How to set up") { showSetup = true }
+        Button("Scan QR code", systemImage: "qrcode.viewfinder") { showScanner = true }
     }
 
     private var pairingPrompt: some View {

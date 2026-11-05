@@ -120,6 +120,12 @@ Two sets, same five images, in upload order:
 Regenerate with `python3 Tools/compose-screenshots.py <raw captures> <out dir> large|medium`
 (raw captures: `xcrun simctl io 'iPhone 16 Pro Max' screenshot name.png`).
 
+iPhone Duo set, `docs/screenshots/duo/`: outer display 1398×2034 (`duo-outer-*`, portrait
+and landscape) and inner display 2007×2853 (`duo-inner-*`, portrait, landscape, landscape
+with the keyboard up). Regenerate with `python3 Tools/compose-duo.py <raw captures> <out dir>`;
+raw captures come from the Duo simulator, one display at a time:
+`xcrun simctl io <duo udid> screenshot --display=1 outer.png` (`--display=3` for the inner one).
+
 ## Export compliance
 
 `ITSAppUsesNonExemptEncryption = NO` and no App Encryption Documentation upload. Reason: all
