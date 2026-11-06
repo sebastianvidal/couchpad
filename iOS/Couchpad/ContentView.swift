@@ -5,10 +5,14 @@ struct ContentView: View {
     @StateObject private var settings = AppSettings()
     @StateObject private var inputState = InputState()
     @StateObject private var controller = ControllerBridge()
+    @StateObject private var screen = ScreenReceiver()
+    /// Size of the trackpad area in pixels, which is the picture size we ask the host for.
+    @State private var trackpadPixels = CGSize.zero
     @State private var showSettings = false
     @State private var pairingCode = ""
     @AppStorage("hasSeenSetup") private var hasSeenSetup = false
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.displayScale) private var displayScale
     /// The window's full size (safe areas and keyboard included), measured from the root.
     /// Layout follows its shape, not the size class: on an unfolded iPhone Duo the vertical
     /// size class stays regular sideways, yet the space is wide and wants the sideways layout.
@@ -46,6 +50,9 @@ struct ContentView: View {
         .onAppear {
             controller.client = client
             controller.settings = settings
+            screen.client = client
+            client.onScreenPacket = { [weak screen] packet in screen?.handle(packet) }
+            client.onScreenStatus = { [weak screen] status in screen?.hostMessage = status }
             client.startBrowsing()
             UIApplication.shared.isIdleTimerDisabled = true
             if !hasSeenSetup {
@@ -83,10 +90,30 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
-            case .background: controller.releaseAll(); client.appDidEnterBackground()
+            case .background: controller.releaseAll(); client.appDidEnterBackground(); screen.reset()
             case .active: client.appDidBecomeActive()
             default: break
             }
+        }
+        .onChange(of: client.phase) { _, _ in syncScreen() }
+        .onChange(of: settings.showScreen) { _, _ in syncScreen() }
+        .onChange(of: trackpadPixels) { _, _ in syncScreen() }
+    }
+
+    /// The picture is only offered by Macs for now; the setting is remembered regardless.
+    private var screenAvailable: Bool { client.hostPlatform == .mac }
+    private var screenOn: Bool { settings.showScreen && screenAvailable }
+
+    /// Tells the host whether we want its screen and at what size. Called whenever the
+    /// connection, the setting or the trackpad's size changes; the host restarts the stream
+    /// only when the size actually changed.
+    private func syncScreen() {
+        guard client.isConnected else { screen.reset(); return }
+        if screenOn, trackpadPixels.width > 0 {
+            client.send("v 1 \(Int(trackpadPixels.width)) \(Int(trackpadPixels.height)) 30")
+        } else {
+            client.send("v 0")
+            screen.reset()
         }
     }
 
@@ -199,6 +226,12 @@ struct ContentView: View {
                     .foregroundStyle(.green)
                     .accessibilityLabel("Controller connected")
             }
+            if screenAvailable, client.isConnected {
+                Button { settings.showScreen.toggle() } label: {
+                    Image(systemName: settings.showScreen ? "display.2" : "display")
+                }
+                .accessibilityLabel(settings.showScreen ? "Hide the computer's screen" : "Show the computer's screen")
+            }
             Button { showSetup = true } label: { Image(systemName: "questionmark.circle") }
             Button { showSettings = true } label: { Image(systemName: "gearshape") }
         }
@@ -209,8 +242,21 @@ struct ContentView: View {
         ZStack {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
-            TrackpadView(client: client, settings: settings)
+            if screenOn, client.isConnected {
+                ScreenView(receiver: screen)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            TrackpadView(client: client, settings: settings, videoSize: screenOn ? screen.videoSize : .zero)
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.onChange(of: geo.size, initial: true) { _, size in
+                            trackpadPixels = CGSize(width: size.width * displayScale, height: size.height * displayScale)
+                        }
+                    }
+                )
             switch client.phase {
+            case .paired where screenOn && screen.videoSize == .zero:
+                screenPlaceholder
             case .paired:
                 EmptyView()
             case .needsCode, .wrongCode:
@@ -240,6 +286,31 @@ struct ContentView: View {
             }
         }
         .frame(maxHeight: .infinity)
+    }
+
+    /// What to say while the picture is wanted but not arriving.
+    private var screenPlaceholder: some View {
+        VStack(spacing: 8) {
+            if screen.hostMessage == "denied" {
+                Image(systemName: "rectangle.on.rectangle.slash").font(.title2)
+                Text("Allow Screen Recording for Couchpad on \(client.macName)\n(System Settings → Privacy & Security), then try again.")
+                    .multilineTextAlignment(.center)
+                    .font(.footnote)
+                Button("Try again") { client.send("v 0"); syncScreen() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            } else if let message = screen.hostMessage, message.hasPrefix("error") {
+                Image(systemName: "exclamationmark.triangle").font(.title2)
+                Text("\(client.macName) couldn't stream its screen: \(message.dropFirst(6))")
+                    .multilineTextAlignment(.center)
+                    .font(.footnote)
+            } else {
+                ProgressView("Waiting for \(client.macName)'s screen…").font(.footnote)
+            }
+        }
+        .foregroundStyle(.secondary)
+        .padding(16)
+        .allowsHitTesting(screen.hostMessage == "denied")
     }
 
     @ViewBuilder private var setupButtons: some View {
@@ -319,6 +390,11 @@ struct ContentView: View {
                     Toggle("Tap, then touch-and-hold to drag", isOn: $settings.tapToDrag)
                     Toggle("Three-finger swipes (Mission Control, Spaces)", isOn: $settings.threeFingerSwipes)
                     Toggle("Trackpad on the right (landscape)", isOn: $settings.trackpadOnRight)
+                }
+                Section("Screen") {
+                    Toggle("Show the Mac's screen on the trackpad", isOn: $settings.showScreen)
+                    Text("Tap what you see to click it. Needs Screen Recording access for Couchpad on the Mac; the Mac asks the first time. Mac only for now.")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Controller") {
                     if let name = controller.controllerName {

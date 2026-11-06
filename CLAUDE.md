@@ -68,5 +68,21 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
 - The system puts a vertical status bar on one long edge; it arrives as a safe-area inset,
   so nothing in the app should assume insets are symmetric or orientation-bound.
 
+## Screen streaming (Mac → phone)
+- `Mac/Sources/CouchpadMac/ScreenStreamer.swift`: ScreenCaptureKit → VideoToolbox (HEVC,
+  H.264 fallback, real-time, no reordering). Frames go out through `Server.broadcast`, which
+  drops frames past ~600 KB in flight per phone and then forces a keyframe. Phone side is
+  `iOS/Couchpad/ScreenView.swift` (AVSampleBufferDisplayLayer, display-immediately).
+- Needs the Screen Recording TCC grant for the running binary. After granting, macOS may
+  relaunch `/Applications/Couchpad.app` instead of the dev build; make sure only one is
+  running (`pgrep -fl Couchpad.app/Contents/MacOS/Couchpad`) or they fight over the port.
+- The Mac app logs a pairing code at launch and another when `--pair` opens the window;
+  the second one is the live code.
+- To test the picture on a simulator: `defaults write com.seb.Couchpad showScreen -bool true`
+  via `simctl spawn`, pair with `simctl openurl couchpad://pair?...` (an "Open in Couchpad?"
+  prompt must be tapped in Device Hub), then watch `log show --predicate 'process == "Couchpad"'`
+  for `FigVideoQueue … frames enqueued`. Testing the absolute pointer moves the user's cursor.
+- Windows ignores `v`/`M`; the phone hides the toggle for Windows hosts.
+
 ## Commits
 Attribution trailer per the session's reminder. Push to `main` directly; no PRs needed for now.

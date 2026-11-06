@@ -37,6 +37,11 @@ final class Client: ObservableObject {
     @Published private(set) var macName = ""
     @Published private(set) var hostPlatform: HostPlatform = .mac
 
+    /// Binary messages from the host (the screen stream), delivered on the main actor.
+    var onScreenPacket: ((Data) -> Void)?
+    /// Text status about the screen stream from the host ("denied", "error …").
+    var onScreenStatus: ((String) -> Void)?
+
     /// "Mac" or "PC", for UI text about the paired computer.
     var hostNoun: String { hostPlatform == .windows ? "PC" : "Mac" }
     var isConnected: Bool { phase == .paired }
@@ -299,7 +304,9 @@ final class Client: ObservableObject {
 
     private func handle(_ line: String) {
         let parts = line.split(separator: " ")
-        if parts.first == "ok", parts.count >= 4, let hostProof = Data(base64Encoded: String(parts[3])) {
+        if parts.first == "screen", parts.count >= 2 {
+            onScreenStatus?(String(line.dropFirst(7)))
+        } else if parts.first == "ok", parts.count >= 4, let hostProof = Data(base64Encoded: String(parts[3])) {
             let token = String(parts[1])
             // The host must prove it knows the token too; an impostor can't.
             guard SecureChannel.proofMatches(hostProof, secret: token, transcript: transcript, side: SecureChannel.hostTag) else {
@@ -333,7 +340,7 @@ final class Client: ObservableObject {
     // MARK: I/O
 
     private func receive(on connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 1 << 20) { [weak self] data, _, isComplete, error in
             Task { @MainActor in
                 guard let self, self.connection === connection else { return }
                 if let data { self.buffer.append(data) }
@@ -343,7 +350,12 @@ final class Client: ObservableObject {
                     }
                     if let cipher = self.recvCipher {
                         while let body = try self.buffer.next() {
-                            self.handle(try cipher.open(body))
+                            let plain = try cipher.openData(body)
+                            if plain.first == ScreenPacket.marker {
+                                if self.isConnected { self.onScreenPacket?(plain) }
+                            } else {
+                                self.handle(String(decoding: plain, as: UTF8.self))
+                            }
                         }
                     }
                 } catch {

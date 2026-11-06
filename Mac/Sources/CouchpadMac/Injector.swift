@@ -3,6 +3,7 @@ import Foundation
 
 /// Turns protocol lines into CGEvents. Line format (space separated):
 ///   m dx dy        move pointer by delta (also carried as raw mouse delta for games)
+///   M fx fy        move pointer to a point on the streamed display (fractions 0…1)
 ///   s dx dy        scroll by pixels
 ///   b l|r 1|0      mouse button down/up
 ///   c l|r          click
@@ -29,6 +30,9 @@ final class Injector {
         case "m":
             guard parts.count >= 3, let dx = Int(parts[1]), let dy = Int(parts[2]) else { return }
             move(dx: dx, dy: dy)
+        case "M":
+            guard parts.count >= 3, let fx = Double(parts[1]), let fy = Double(parts[2]) else { return }
+            moveAbsolute(fx: fx, fy: fy)
         case "s":
             guard parts.count >= 3, let dx = Int32(parts[1]), let dy = Int32(parts[2]) else { return }
             scroll(dx: dx, dy: dy)
@@ -105,6 +109,22 @@ final class Injector {
         // Games that read raw mouse input look at the deltas, not the cursor position.
         e.setIntegerValueField(.mouseEventDeltaX, value: Int64(dx))
         e.setIntegerValueField(.mouseEventDeltaY, value: Int64(dy))
+        e.flags = modifiers
+        e.post(tap: .cghidEventTap)
+    }
+
+    /// The phone tapped a spot on the picture: put the pointer there. Deltas are carried too,
+    /// so a drag across the picture still reads as mouse movement to a game.
+    private func moveAbsolute(fx: Double, fy: Double) {
+        let b = ScreenStreamer.shared.displayBounds
+        let target = CGPoint(x: b.minX + min(max(fx, 0), 1) * b.width, y: b.minY + min(max(fy, 0), 1) * b.height)
+        let from = currentLocation()
+        let p = CGPoint(x: min(target.x, b.maxX - 1), y: min(target.y, b.maxY - 1))
+        let type: CGEventType = leftDown ? .leftMouseDragged : (rightDown ? .rightMouseDragged : .mouseMoved)
+        guard let e = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: p,
+                              mouseButton: rightDown && !leftDown ? .right : .left) else { return }
+        e.setIntegerValueField(.mouseEventDeltaX, value: Int64((p.x - from.x).rounded()))
+        e.setIntegerValueField(.mouseEventDeltaY, value: Int64((p.y - from.y).rounded()))
         e.flags = modifiers
         e.post(tap: .cghidEventTap)
     }

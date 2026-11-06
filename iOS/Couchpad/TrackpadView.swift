@@ -7,6 +7,9 @@ import UIKit
 struct TrackpadView: UIViewRepresentable {
     let client: Client
     let settings: AppSettings
+    /// When the host's picture is underneath, touches point at it: the pointer goes where
+    /// the finger is (letterboxed to `videoSize`) instead of moving by deltas.
+    var videoSize = CGSize.zero
 
     func makeUIView(context: Context) -> TrackpadUIView {
         let view = TrackpadUIView()
@@ -15,12 +18,31 @@ struct TrackpadView: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ uiView: TrackpadUIView, context: Context) {}
+    func updateUIView(_ uiView: TrackpadUIView, context: Context) {
+        uiView.videoSize = videoSize
+    }
 }
 
 final class TrackpadUIView: UIView {
     weak var client: Client?
     weak var settings: AppSettings?
+    var videoSize = CGSize.zero
+    private var absolute: Bool { videoSize.width > 0 && videoSize.height > 0 }
+
+    /// Where the picture sits inside this view (aspect-fit), for mapping touches to it.
+    private var videoRect: CGRect {
+        guard absolute, bounds.width > 0, bounds.height > 0 else { return bounds }
+        let scale = min(bounds.width / videoSize.width, bounds.height / videoSize.height)
+        let size = CGSize(width: videoSize.width * scale, height: videoSize.height * scale)
+        return CGRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
+    }
+
+    private func sendPointer(at point: CGPoint) {
+        let r = videoRect
+        let fx = min(max((point.x - r.minX) / r.width, 0), 1)
+        let fy = min(max((point.y - r.minY) / r.height, 0), 1)
+        client?.send(String(format: "M %.4f %.4f", fx, fy))
+    }
 
     private var active: [UITouch: CGPoint] = [:]
     private var startTime: TimeInterval = 0
@@ -56,6 +78,9 @@ final class TrackpadUIView: UIView {
         }
         for touch in touches { active[touch] = touch.location(in: self) }
         maxTouches = max(maxTouches, active.count)
+        if absolute, active.count == 1, let point = active.values.first {
+            sendPointer(at: point)   // so a tap clicks what is under the finger
+        }
         if active.count == 3 {
             gestureStart = centroid()
             gestureLast = gestureStart
@@ -89,7 +114,11 @@ final class TrackpadUIView: UIView {
             // A three-finger gesture: nothing moves or scrolls until all fingers lift.
             gestureLast = centroid()
         } else if active.count == 1 {
-            sendMove(delta)
+            if absolute, let point = active.values.first {
+                sendPointer(at: point)
+            } else {
+                sendMove(delta)
+            }
         } else if active.count >= 2 {
             sendScroll(delta)
         }

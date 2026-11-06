@@ -14,6 +14,11 @@ final class Server {
         var send: FrameCipher?
         var recv: FrameCipher?
         var authenticated = false
+        /// Screen streaming state: whether this phone asked for the picture, how many bytes
+        /// are queued in the socket, and whether we owe it a keyframe after dropping frames.
+        var wantsScreen = false
+        var inflight = 0
+        var needsKeyframe = true
         init(_ connection: NWConnection) { self.connection = connection }
     }
 
@@ -27,9 +32,24 @@ final class Server {
 
     private(set) var status = "Starting…"
 
+    /// Bytes allowed in flight per phone before frames are dropped instead of queued: queuing
+    /// turns a Wi-Fi hiccup into seconds of lag, dropping turns it into a brief freeze.
+    private let inflightCap = 600 * 1024
+
     init(port: UInt16, onChange: @escaping () -> Void) throws {
         self.port = port
         self.onChange = onChange
+        ScreenStreamer.shared.onFrame = { [weak self] frame in
+            self?.queue.async { self?.broadcast(frame) }
+        }
+        ScreenStreamer.shared.onStatus = { [weak self] status in
+            self?.queue.async {
+                guard let self else { return }
+                for session in self.sessions.values where session.wantsScreen {
+                    try? self.send("screen \(status)", to: session)
+                }
+            }
+        }
     }
 
     /// Starts listening; if the port is busy or the network isn't up yet, keeps retrying.
@@ -135,7 +155,11 @@ final class Server {
 
     private func handleLine(_ line: String, session: Session) throws {
         if session.authenticated {
-            Injector.shared.handle(line)
+            if line.hasPrefix("v ") {
+                handleScreenCommand(line, session: session)
+            } else {
+                Injector.shared.handle(line)
+            }
             return
         }
         // Anything before "auth" is dropped, never refused: a refusal makes the phone discard its token.
@@ -171,11 +195,63 @@ final class Server {
         session.connection.send(content: frame, completion: .contentProcessed { _ in })
     }
 
+    // MARK: Screen streaming
+
+    /// `v 1 <maxWidth> <maxHeight> <fps>` starts the picture, `v 0` stops it, `v k` asks for a
+    /// keyframe (the phone lost sync or just came back).
+    private func handleScreenCommand(_ line: String, session: Session) {
+        let parts = line.split(separator: " ")
+        guard parts.count >= 2 else { return }
+        switch parts[1] {
+        case "1":
+            guard parts.count >= 5, let w = Int(parts[2]), let h = Int(parts[3]), let fps = Int(parts[4]), w > 0, h > 0 else { return }
+            session.wantsScreen = true
+            session.needsKeyframe = true
+            ScreenStreamer.shared.start(maxWidth: w, maxHeight: h, fps: fps)
+        case "0":
+            session.wantsScreen = false
+            stopScreenIfUnwanted()
+        case "k":
+            session.needsKeyframe = true
+            ScreenStreamer.shared.requestKeyframe()
+        default:
+            break
+        }
+    }
+
+    private func stopScreenIfUnwanted() {
+        if !sessions.values.contains(where: { $0.wantsScreen }) { ScreenStreamer.shared.stop() }
+    }
+
+    private func broadcast(_ frame: ScreenPacket.Frame) {
+        let packet = ScreenPacket.encode(frame)
+        var keyframeWanted = false
+        for session in sessions.values where session.wantsScreen && session.authenticated {
+            // Behind: drop this frame. A dropped frame breaks the chain, so the next one sent
+            // must be a keyframe, and only a keyframe clears the backlog flag.
+            if session.inflight > inflightCap || (session.needsKeyframe && !frame.keyframe) {
+                session.needsKeyframe = true
+                keyframeWanted = true
+                continue
+            }
+            if frame.keyframe { session.needsKeyframe = false }
+            guard let cipher = session.send, let sealed = try? cipher.seal(packet) else { continue }
+            session.inflight += sealed.count
+            let size = sealed.count
+            session.connection.send(content: sealed, completion: .contentProcessed { [weak self, weak session] _ in
+                self?.queue.async { session?.inflight -= size }
+            })
+        }
+        if keyframeWanted { ScreenStreamer.shared.requestKeyframe() }
+    }
+
     private func drop(_ session: Session) {
         guard sessions.removeValue(forKey: ObjectIdentifier(session.connection)) != nil else { return }
         session.connection.cancel()
         // Never leave a key or mouse button stuck down when the phone goes away.
         if session.authenticated { Injector.shared.releaseAll() }
+        session.wantsScreen = false
+        stopScreenIfUnwanted()
         report()
     }
 

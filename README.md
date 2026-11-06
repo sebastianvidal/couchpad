@@ -13,6 +13,10 @@ code or QR, and talks to it over one encrypted TCP connection on your network.
   [download](https://github.com/sebastianvidal/couchpad/releases/latest). 1.1 brings encrypted
   sessions and hardened pairing; it needs the current iPhone build.
 - **Windows:** compiles, not yet run on a real Windows machine (see the appendix).
+- **New, in development:** the Mac's screen on the phone. Turn it on with the display icon
+  next to the gear; the picture fills the trackpad and tapping it clicks that spot. Hardware
+  HEVC over the same encrypted connection, about 30 frames a second on good Wi-Fi. Needs
+  Screen Recording access for Couchpad on the Mac (it asks the first time). Mac only so far.
 
 Site: https://sebastianvidal.github.io/couchpad/
 
@@ -175,9 +179,18 @@ k code 1|0   key down / up, macOS virtual keycode
 g up|down|left|right   three-finger swipe; the host maps it to its own shortcut
 t text       type text (each character is pressed as its key; shift added as needed)
 r            release everything
+M fx fy      put the pointer at a point on the streamed display (fractions 0…1 of its size)
+v 1 w h fps  start streaming the screen, scaled to fit w×h pixels   ·   v 0 stop   ·   v k send a keyframe
 ```
 
 The host releases every held key and button when a phone disconnects.
+
+Screen frames travel the other way as binary messages inside the same channel: a plaintext
+whose first byte is 0x00 (a text line never starts with one) carries one HEVC or H.264 frame
+with its size, timestamp and, on keyframes, the codec's parameter sets (`ScreenPacket` in
+`SecureChannel.swift`). A host that can't stream answers with a text line `screen denied`
+(Screen Recording not allowed) or `screen error <why>`. The host drops frames rather than
+queueing them when the phone falls behind, then sends a keyframe to resync.
 
 ## Appendix C: Releasing
 

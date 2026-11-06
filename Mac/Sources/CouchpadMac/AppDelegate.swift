@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let codeLine = NSMenuItem(title: "Pair an iPhone…", action: #selector(showPairingCode), keyEquivalent: "")
     private let addressLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let axLine = NSMenuItem(title: "", action: #selector(requestAccessibility), keyEquivalent: "")
+    private let screenLine = NSMenuItem(title: "", action: #selector(requestScreenRecording), keyEquivalent: "")
     private let loginLine = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
     private let forgetLine = NSMenuItem(title: "Forget Paired iPhones…", action: #selector(forgetPhones), keyEquivalent: "")
     private var server: Server?
@@ -25,15 +26,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(codeLine)
         menu.addItem(addressLine)
         menu.addItem(axLine)
+        menu.addItem(screenLine)
         menu.addItem(.separator())
         menu.addItem(loginLine)
         menu.addItem(forgetLine)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Couchpad", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
-        for item in [codeLine, axLine, loginLine, forgetLine] { item.target = self }
+        for item in [codeLine, axLine, screenLine, loginLine, forgetLine] { item.target = self }
         statusItem.menu = menu
 
         refreshAccessibility(prompt: true)
+        refreshScreenRecording()
 
         pairingWindow.payloadProvider = { [weak self] in self?.pairingPayload() ?? "" }
         Pairing.shared.onEvent = { [weak self] event in
@@ -59,7 +62,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         refreshAccessibility(prompt: false)
+        refreshScreenRecording()
         refresh()
+    }
+
+    /// Screen Recording is only needed for the picture on the phone; the prompt appears the
+    /// first time a phone asks for it, not at launch.
+    private func refreshScreenRecording() {
+        let granted = ScreenStreamer.hasPermission
+        screenLine.title = granted ? "Screen Recording: granted" : "Screen Recording: not granted — needed to show the screen on the phone"
+        screenLine.isEnabled = !granted
+    }
+
+    @objc private func requestScreenRecording() {
+        CGRequestScreenCaptureAccess()
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     private func refresh() {
