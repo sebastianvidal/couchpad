@@ -18,6 +18,8 @@ struct ContentView: View {
     /// size class stays regular sideways, yet the space is wide and wants the sideways layout.
     @State private var windowSize = CGSize.zero
     private var isLandscape: Bool { windowSize.width > windowSize.height }
+    /// The window's safe-area insets, as the system reports them (before `panelEdges` is applied).
+    @State private var safeInsets = EdgeInsets()
     @State private var showSetup = false
     @State private var showScanner = false
     /// Screen layout: the floating key panel and where the user dragged it.
@@ -49,7 +51,18 @@ struct ContentView: View {
         // Keyboard avoidance is applied at the root, so it has to be switched off here:
         // sideways, nothing moves for the keyboard (the trackpad is inset by hand instead).
         .ignoresSafeArea(isLandscape || hingeLayout ? .keyboard : [])
+        .ignoresSafeArea(.container, edges: panelEdges)
         .background(Color(.systemBackground))
+        .background(
+            // The safe-area insets as the system hands them down, to tell a hidden status
+            // bar's panel from hardware (see `panelEdges`). Keyboard excluded: it is not an edge.
+            GeometryReader { geo in
+                Color.clear.onChange(of: geo.safeAreaInsets, initial: true) { _, insets in
+                    safeInsets = insets
+                }
+            }
+            .ignoresSafeArea(.keyboard)
+        )
         .background(HingeObserver(partlyOpen: $hingePartlyOpen))
         // The picture is the point of screen mode: the clock and the signal bars can go.
         .statusBarHidden(screenOn && client.isConnected)
@@ -126,6 +139,19 @@ struct ContentView: View {
     private var screenAvailable: Bool { client.hostPlatform == .mac }
     private var screenOn: Bool { settings.showScreen && screenAvailable }
     private var hingeLayout: Bool { screenOn && client.isConnected && hingePartlyOpen }
+
+    /// Safe-area edges the layout takes for itself in screen mode. The iPhone Duo keeps its
+    /// status bar in a panel along one long edge (84pt on the folded display), and that panel
+    /// stays reserved after `statusBarHidden` empties it, leaving a black band beside the
+    /// picture. An inset on one horizontal edge with none on the other is that panel: nothing
+    /// is in it any more, so the picture and the bar spread into it. A notch or Dynamic Island
+    /// insets both sides alike and is never touched; so are the top and bottom edges.
+    private var panelEdges: Edge.Set {
+        guard screenOn, client.isConnected else { return [] }
+        if safeInsets.leading > 0, safeInsets.trailing == 0 { return .leading }
+        if safeInsets.trailing > 0, safeInsets.leading == 0 { return .trailing }
+        return []
+    }
 
     /// Tells the host whether we want its screen and at what size. Called whenever the
     /// connection, the setting or the trackpad's size changes; the host restarts the stream
@@ -350,7 +376,7 @@ struct ContentView: View {
             Image(systemName: symbol)
                 .frame(width: 44)
                 .frame(maxHeight: .infinity)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .glassOrFill(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
@@ -378,7 +404,7 @@ struct ContentView: View {
         }
         .padding(8)
         .frame(width: min(400, max(280, windowSize.width - 32)))
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .glassOrFill(RoundedRectangle(cornerRadius: 14, style: .continuous), interactive: false, fallback: .regularMaterial)
         .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
         .padding(10)
         .offset(keysOffset)
@@ -670,23 +696,37 @@ struct HoldButton: View {
     @State private var pressed = false
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(pressed ? Color.accentColor : Color(.secondarySystemBackground))
-            Text(label)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(pressed ? Color.white : Color.primary)
+        Text(label)
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(pressed ? Color.white : Color.primary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .glassOrFill(RoundedRectangle(cornerRadius: 10, style: .continuous), tint: pressed ? Color.accentColor : nil)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        if !pressed { pressed = true; onDown() }
+                    }
+                    .onEnded { _ in
+                        pressed = false
+                        onUp()
+                    }
+            )
+    }
+}
+
+extension View {
+    /// Liquid Glass where the system has it (iOS 26), a flat fill before that. `tint` colours
+    /// the glass, or replaces the fill; `interactive` makes the glass react to touches.
+    @ViewBuilder
+    func glassOrFill(_ shape: some Shape, tint: Color? = nil, interactive: Bool = true,
+                     fallback: some ShapeStyle = Color(.secondarySystemBackground)) -> some View {
+        if #available(iOS 26, *) {
+            glassEffect(.regular.tint(tint).interactive(interactive), in: shape)
+        } else if let tint {
+            background(tint, in: shape)
+        } else {
+            background(fallback, in: shape)
         }
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    if !pressed { pressed = true; onDown() }
-                }
-                .onEnded { _ in
-                    pressed = false
-                    onUp()
-                }
-        )
     }
 }
