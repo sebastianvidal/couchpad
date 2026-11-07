@@ -221,19 +221,31 @@ struct ContentView: View {
             let bottom = geo.frame(in: .global).maxY
             let keyboardTop = keyboardTops[sizeKey] ?? (bottom - geo.size.height * 0.40)
             let inset = isLandscape && inputState.keyboardShown ? max(0, bottom - keyboardTop + 8) : 0
+            // A wide picture in a tall window (an unfolded Duo held upright) leaves a band
+            // under the picture: when it fits three rows of keys, the strip lives there instead
+            // of floating. The picture fills the width and the strip takes what is left.
+            let availableHeight = geo.size.height - inset - 36 - 6
+            let pictureHeight = screen.videoSize == .zero ? availableHeight : geo.size.width * screen.videoSize.height / screen.videoSize.width
+            let spare = availableHeight - pictureHeight - 6
+            let docked = spare >= 40 + 3 * 36
+            let dockedRow = min(portraitRowHeight, (spare - 40) / 3)
             VStack(spacing: 6) {
                 trackpad
                     .overlay(alignment: .bottomTrailing) {
-                        if showKeysPanel { keysPanel }
+                        if showKeysPanel, !docked { keysPanel }
                     }
-                screenBar
+                if docked {
+                    KeyStripView(client: client, state: inputState, rowHeight: dockedRow,
+                                 replacesRowsWhenExpanded: spare < 40 + 5 * dockedRow + 8)
+                }
+                screenBar(keysToggle: !docked)
             }
             .padding(.bottom, inset)
         }
         .padding(.top, 4)
     }
 
-    private var screenBar: some View {
+    private func screenBar(keysToggle: Bool) -> some View {
         HStack(spacing: 8) {
             Menu {
                 ForEach(client.services) { service in
@@ -249,8 +261,10 @@ struct ContentView: View {
             }
             .accessibilityLabel(client.status)
             barButton("display.2", label: "Hide the computer's screen") { settings.showScreen = false }
-            barButton(showKeysPanel ? "command.square.fill" : "command.square", label: showKeysPanel ? "Hide keys" : "Show keys") {
-                showKeysPanel.toggle()
+            if keysToggle {
+                barButton(showKeysPanel ? "command.square.fill" : "command.square", label: showKeysPanel ? "Hide keys" : "Show keys") {
+                    showKeysPanel.toggle()
+                }
             }
             barButton(inputState.keyboardShown ? "keyboard.chevron.compact.down" : "keyboard",
                       label: inputState.keyboardShown ? "Hide keyboard" : "Show keyboard") {
