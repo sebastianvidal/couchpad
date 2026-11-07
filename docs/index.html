@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Couchpad — your iPhone as a trackpad and keyboard</title>
-<meta name="description" content="Use your iPhone as a trackpad and keyboard for your Mac or Windows PC over local Wi-Fi, with the Mac's screen on the phone. Free, open source, no accounts. Now in TestFlight beta.">
+<meta name="description" content="Use your iPhone as a trackpad and keyboard for your Mac or Windows PC, with the Mac's screen on the phone. On your Wi-Fi, or from anywhere through your own VPN. Free, open source, no accounts. Now in TestFlight beta.">
 <meta property="og:title" content="Couchpad">
 <meta property="og:description" content="Your iPhone as a trackpad and keyboard for your Mac or Windows PC, over Wi‑Fi. Free and open source.">
 <meta property="og:image" content="https://sebastianvidal.github.io/couchpad/icon.png">
@@ -17,16 +17,16 @@
     <img src="icon.png" alt="">
     <div>
       <h1>Couchpad</h1>
-      <p>Your iPhone as a trackpad and keyboard for your Mac or Windows PC.</p>
+      <p>Your iPhone as a trackpad and keyboard for your Mac or Windows PC — on the couch, or from anywhere.</p>
     </div>
   </header>
 
-  <p class="status"><span class="dot"></span> <strong>Beta.</strong> The iPhone app is a public TestFlight beta ahead of its free App Store release; Mac companion 1.2 is out and puts the Mac's screen on the phone over encrypted UDP. The Windows companion builds from source.</p>
+  <p class="status"><span class="dot"></span> <strong>Beta.</strong> The iPhone app is a public TestFlight beta ahead of its free App Store release; Mac companion 1.2 is out and puts the Mac's screen on the phone over encrypted UDP. Put both devices on a VPN and it <a href="remote.html">works from outside the house</a> too. The Windows companion builds from source.</p>
 
   <section class="hero-row">
     <div class="hero-text">
       <p class="hero">Made for the couch: the computer is plugged into the TV, you're across the room, and you don't want a mouse and keyboard on your lap.</p>
-      <p>Open Couchpad and your phone is both. The top of the screen is a trackpad; below it, the regular iPhone keyboard plus the keys a phone doesn't have. Turn on the screen and the Mac's picture fills the trackpad, so you can glance down instead of across the room. Nothing to sign up for and nothing leaves your Wi‑Fi.</p>
+      <p>Open Couchpad and your phone is both. The top of the screen is a trackpad; below it, the regular iPhone keyboard plus the keys a phone doesn't have. Turn on the screen and the Mac's picture fills the trackpad, so you can glance down instead of across the room. Nothing to sign up for, no server in the middle. And because the phone only needs a route to the computer, both devices on a VPN like Tailscale means <a href="remote.html">your Mac, with its screen, from anywhere</a>.</p>
       <div class="buttons">
         <a class="btn" href="https://testflight.apple.com/join/kY67K51G">Get the iPhone beta</a>
         <a class="btn secondary" href="https://github.com/sebastianvidal/couchpad/releases/latest/download/Couchpad-1.2.dmg">Download for Mac</a>
@@ -65,8 +65,12 @@
       <p>Leave the app and come back: it reconnects in a second or two, no code needed. If you were holding a key when you left, the computer releases it.</p>
     </div>
     <div>
+      <h3>Away from home</h3>
+      <p>Put the phone and the computer on the same VPN (Tailscale takes a few minutes and is free for personal use), type the computer's VPN address once in Settings → Connection, and Couchpad works over cellular as it does on the couch: same pairing, same end‑to‑end encryption, no Couchpad server anywhere. The screen comes along, a little laggier than at home. <a href="remote.html">How to set it up.</a></p>
+    </div>
+    <div>
       <h3>Settings</h3>
-      <p>Pointer speed, scroll speed, natural scrolling, tap-to-drag, three-finger swipes, and a manual address for networks that block Bonjour.</p>
+      <p>Pointer speed, scroll speed, natural scrolling, tap-to-drag, three-finger swipes, and a manual address for VPNs and networks that block Bonjour.</p>
     </div>
   </div>
 
@@ -88,6 +92,7 @@
     <li><strong>Allow it once.</strong> macOS asks for Accessibility access, which is what lets it move the pointer and type. Windows asks to allow it through the firewall.</li>
     <li><strong>Pair.</strong> Open Couchpad on your iPhone on the same Wi‑Fi. It finds the computer; choose "Pair an iPhone…" from the menu-bar or tray icon and scan the QR code the first time.</li>
   </ol>
+  <p class="muted">Want it outside the house too? <a href="remote.html">Away from home</a> walks through the VPN setup; it's one more step.</p>
 
   <h2 id="security">Security, in plain terms</h2>
   <p class="muted">A phone that can type on your computer can do anything on it, so this part matters. Here is what Couchpad does about it and why.</p>
@@ -109,8 +114,8 @@
       <p>The phone never sends its pairing token or the code. It proves it knows them with a cryptographic signature tied to <em>this</em> connection, and the computer proves the same back. A recording can't be replayed, and a fake computer advertising your Mac's name learns nothing and can't pass messages through.</p>
     </div>
     <div>
-      <h3>Nothing leaves your network</h3>
-      <p>There is no account, no server and no cloud. The phone finds the computer on your local Wi‑Fi and talks to it directly. If you're not on the same network, nothing can connect.</p>
+      <h3>No server in the middle</h3>
+      <p>There is no account, no cloud and no relay of ours. The phone talks to the computer directly, on your Wi‑Fi or through a VPN you run. If the phone has no route to the computer, nothing can connect, and the computer's port is never on the public internet unless you put it there (don't: <a href="remote.html#security">use a VPN</a>).</p>
     </div>
     <div>
       <h3>What it can't protect against</h3>
@@ -123,6 +128,9 @@
 
   <h2>Open source</h2>
   <p>All three apps are MIT-licensed in one repository: Swift on iPhone and Mac, C# on Windows, talking a small text protocol over one TCP socket. Issues, ideas and pull requests welcome.</p>
+
+  <h2>More</h2>
+  <p><a href="remote.html">Away from home</a> · <a href="privacy.html">Privacy policy</a> · <a href="https://github.com/sebastianvidal/couchpad#security">Security design</a></p>
 
   <footer>
     Couchpad is made by Sebastian Vidal and is open source under the MIT license. Questions or problems: <a href="https://github.com/sebastianvidal/couchpad/issues">open an issue</a>.

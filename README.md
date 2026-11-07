@@ -1,10 +1,12 @@
 # Couchpad
 
-Your iPhone as a trackpad and keyboard for your Mac or Windows PC, over local Wi-Fi. Made
-for gaming on a computer plugged into the TV without a mouse and keyboard on the couch.
+Your iPhone as a trackpad and keyboard for your Mac or Windows PC, with the Mac's screen on
+the phone. Made for gaming on a computer plugged into the TV without a mouse and keyboard on
+the couch; works from anywhere once both devices are on a VPN (see [Away from home](#away-from-home)).
 
 No accounts, no cloud: the phone finds the computer with Bonjour, pairs once with a 6-digit
-code or QR, and talks to it over one encrypted TCP connection on your network.
+code or QR, and talks to it directly over one encrypted connection. There is no server in
+between, on your Wi-Fi or through your VPN.
 
 **Status (November 2026)**
 - **iPhone:** public **TestFlight beta** — https://testflight.apple.com/join/kY67K51G — ahead
@@ -24,6 +26,8 @@ code or QR, and talks to it over one encrypted TCP connection on your network.
   trackpad and keys on the flat one. Needs Screen Recording access for Couchpad on the Mac (it
   asks the first time). Fine for desktop use on a decent Wi-Fi; on a lossy mesh link it still
   hiccups more than a game wants. Mac only so far.
+- **Also new:** confirmed working **over cellular through Tailscale**, screen included, with
+  no code changes: the phone just needs a route to the Mac. Setup below.
 
 Site: https://sebastianvidal.github.io/couchpad/
 
@@ -86,9 +90,38 @@ The QR carries the host's address (`couchpad://pair?name=…&addr=…&port=…&c
 pairing also works on networks that block Bonjour; the phone remembers the address and falls
 back to it when discovery finds nothing.
 
+## Away from home
+
+Couchpad needs nothing from the network except a route from the phone to the computer, so a
+VPN that puts both devices on one network makes it work from anywhere: cellular, hotel Wi-Fi,
+the office. [Tailscale](https://tailscale.com) is the easy choice (free for personal use); any
+WireGuard-style VPN or your router's own works the same way. There is still no Couchpad server
+and the session is still encrypted end to end inside the tunnel.
+
+1. Install Tailscale on the computer and the iPhone, same account. Each gets a stable
+   `100.x.y.z` address.
+2. Pair at home over Wi-Fi as usual. Pairing is keyed by the computer's name, not its address,
+   so one pairing serves both networks.
+3. Away: with Tailscale connected on the phone, open Couchpad, then gear → **Connection** →
+   type the computer's Tailscale address → Connect. Bonjour doesn't cross a VPN, so the phone
+   won't list the computer, but it remembers the address and uses it whenever discovery
+   comes up empty.
+
+Expect input to feel local and the picture to lag a little more than at home: the stream is
+tuned for a ~10 ms Wi-Fi round trip and backs off on a slower or lossier link, so it sends
+fewer frames over cellular. Fine for desktop work, not yet a remote gaming link; that is
+tuning, and it's next. The computer has to be awake (System Settings → Energy, or Displays →
+Advanced → prevent sleep on power), and Couchpad can't wake it.
+
+Known rough edges: the QR carries the computer's home address, not the VPN one, so pair at
+home or type the address; the phone waits a few seconds for Bonjour before trying the stored
+address. Don't port-forward 48123 instead of a VPN: pairing would hold, but a VPN keeps the
+port off the internet entirely. Full walkthrough: https://sebastianvidal.github.io/couchpad/remote.html
+
 ## Security
 
-Everything stays on your local network; the design assumes other people may be on it too.
+Everything goes directly between the phone and the computer, on your local network or
+through a VPN you run; the design assumes other people may be on that network too.
 
 - **Encrypted sessions.** Every connection starts with an ephemeral P-256 key exchange; the
   session key comes from HKDF and every line after that is AES-256-GCM. An eavesdropper sees

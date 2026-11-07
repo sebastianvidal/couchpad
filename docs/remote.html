@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Couchpad — Away from home</title>
+<meta name="description" content="Use Couchpad from outside your home: put the phone and the computer on the same VPN (Tailscale or any WireGuard-style network) and connect by its address. No cloud, no relay, still end-to-end encrypted.">
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header>
+    <img src="icon.png" alt="">
+    <div>
+      <h1>Away from home</h1>
+      <p>Your Mac, with its screen, from anywhere — through your own VPN</p>
+    </div>
+  </header>
+
+  <p class="hero">Couchpad was built for a phone and a computer on the same Wi‑Fi. It turns out that is all it needs: put both devices on a VPN and the phone is "on the same network" wherever it is, over cellular or someone else's Wi‑Fi.</p>
+
+  <p>There is no Couchpad account and no Couchpad server in this. The VPN carries the packets; Couchpad still does its own key exchange and encryption inside it, so even the VPN provider's relays, if traffic ever goes through one, see only ciphertext. This page uses <a href="https://tailscale.com">Tailscale</a> because it is free for personal use and takes a few minutes, but any VPN that gives both devices an address on a shared network works the same way: WireGuard, ZeroTier, your router's built-in VPN.</p>
+
+  <h2>Set up, once</h2>
+  <ol>
+    <li><strong>Install Tailscale on the computer and on the iPhone</strong>, and sign both in to the same account (the Mac App Store app and the iOS app are fine). Each device gets an address that starts with <code>100.</code> and never changes.</li>
+    <li><strong>Pair at home first</strong>, the normal way, over Wi‑Fi: Couchpad on the phone finds the computer, "Pair an iPhone…" in the menu-bar icon shows the QR, scan it. Pairing is tied to the computer's name, not its address, so one pairing covers both the home network and the VPN.</li>
+    <li><strong>Note the computer's Tailscale address.</strong> Tailscale's menu-bar icon shows it; so does <code>tailscale ip -4</code> in Terminal. Something like <code>100.101.102.103</code>.</li>
+  </ol>
+
+  <h2>Connect from outside</h2>
+  <ol>
+    <li>Make sure Tailscale is connected on the phone (its toggle in the Tailscale app, or the VPN indicator in the status bar).</li>
+    <li>Open Couchpad. It will search for a while and find nothing: discovery uses Bonjour, which does not cross a VPN.</li>
+    <li>Open the gear → <strong>Connection</strong> and type the computer's Tailscale address. The phone connects, proves it holds its pairing token, and you are in. It remembers the address, so next time it reconnects on its own when Bonjour comes up empty.</li>
+    <li>Turn on the screen with the display icon if you want to see what you are doing.</li>
+  </ol>
+
+  <h2>What to expect</h2>
+  <ul>
+    <li><strong>Input feels local.</strong> Touches and keys are a few bytes each; a cellular round trip adds tens of milliseconds, which you will not notice typing or clicking.</li>
+    <li><strong>The picture lags a little more than at home.</strong> The stream was tuned for a Wi‑Fi round trip of about 10 ms and backs off when the link is slower or loses packets, so over cellular you will see fewer frames and a softer image. It is fine for desktop work and finding things; it is not yet a gaming link from a café. This is tuning, and it is being worked on.</li>
+    <li><strong>UDP works through Tailscale.</strong> Frames go as datagrams, as at home. When Tailscale cannot make a direct connection it falls back to one of its relays, which adds latency; Couchpad notices nothing except a slower link, and the traffic is encrypted either way.</li>
+    <li><strong>The computer must be awake.</strong> A sleeping Mac is not on any network. Set it to never sleep while plugged in (System Settings → Energy, or Displays → Advanced → "Prevent automatic sleeping on power adapter when the display is off"), or use something that wakes it. Couchpad cannot wake it for you.</li>
+  </ul>
+
+  <h2>Rough edges, for now</h2>
+  <ul>
+    <li>The QR code carries the computer's home Wi‑Fi address, not its Tailscale one, so scanning it from outside hands the phone an address it cannot reach. Pair at home, or type the Tailscale address afterwards.</li>
+    <li>The phone's search for the computer takes a few seconds to give up before it tries the stored address. Typing the address in Connection skips the wait.</li>
+    <li>Windows hosts work for input but do not stream the screen yet, at home or away.</li>
+  </ul>
+
+  <h2>Security</h2>
+  <p>Nothing changes. Only a phone that paired with the computer can send it anything; the code is never needed again and never travels; every session starts with a fresh key exchange and is encrypted end to end between the two apps. The VPN adds a second layer: your computer's Couchpad port is reachable only from devices you signed in to your own network, and from nowhere on the public internet. Do not port-forward 48123 on your router instead; Couchpad's pairing is strong, but a VPN keeps the port off the internet altogether, which is strictly better. The <a href="index.html#security">security notes</a> and the <a href="https://github.com/sebastianvidal/couchpad#security">README</a> have the details.</p>
+
+  <footer>
+    <a href="index.html">← Couchpad</a> · Problems or ideas: <a href="https://github.com/sebastianvidal/couchpad/issues">open an issue</a>.
+  </footer>
+</main>
+</body>
+</html>
