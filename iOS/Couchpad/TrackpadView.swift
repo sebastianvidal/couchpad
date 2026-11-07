@@ -10,6 +10,7 @@ struct TrackpadView: UIViewRepresentable {
     /// When the host's picture is underneath, touches point at it: the pointer goes where
     /// the finger is (letterboxed to `videoSize`) instead of moving by deltas.
     var videoSize = CGSize.zero
+    var videoTopLeading = false
 
     func makeUIView(context: Context) -> TrackpadUIView {
         let view = TrackpadUIView()
@@ -20,6 +21,7 @@ struct TrackpadView: UIViewRepresentable {
 
     func updateUIView(_ uiView: TrackpadUIView, context: Context) {
         uiView.videoSize = videoSize
+        uiView.videoTopLeading = videoTopLeading
     }
 }
 
@@ -27,6 +29,8 @@ final class TrackpadUIView: UIView {
     weak var client: Client?
     weak var settings: AppSettings?
     var videoSize = CGSize.zero
+    /// Whether the picture is pinned to the top-left corner rather than centered.
+    var videoTopLeading = false
     private var absolute: Bool { videoSize.width > 0 && videoSize.height > 0 }
 
     /// Where the picture sits inside this view (aspect-fit), for mapping touches to it.
@@ -34,6 +38,7 @@ final class TrackpadUIView: UIView {
         guard absolute, bounds.width > 0, bounds.height > 0 else { return bounds }
         let scale = min(bounds.width / videoSize.width, bounds.height / videoSize.height)
         let size = CGSize(width: videoSize.width * scale, height: videoSize.height * scale)
+        if videoTopLeading { return CGRect(origin: .zero, size: size) }
         return CGRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
     }
 

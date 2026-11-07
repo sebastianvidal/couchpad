@@ -20,6 +20,10 @@ struct ContentView: View {
     private var isLandscape: Bool { windowSize.width > windowSize.height }
     @State private var showSetup = false
     @State private var showScanner = false
+    /// Screen layout: the floating key panel and where the user dragged it.
+    @State private var showKeysPanel = false
+    @State private var keysOffset = CGSize.zero
+    @State private var keysOffsetBase = CGSize.zero
     /// Top edge of the iOS keyboard in landscape (window coordinates), measured the first
     /// time it appears and remembered per window size, so the key block can end exactly where
     /// it begins. Keyed by size because a foldable has two displays with different keyboards.
@@ -27,7 +31,9 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if isLandscape {
+            if screenOn, client.isConnected {
+                screenBody
+            } else if isLandscape {
                 landscapeBody
             } else {
                 portraitBody
@@ -86,7 +92,12 @@ struct ContentView: View {
         .onChange(of: isLandscape, initial: true) { _, landscape in
             // Sideways (a Backbone, say) the iOS keyboard would cover half the screen: start hidden.
             // `initial: true` covers launching already sideways, when onAppear sees no size class yet.
-            inputState.keyboardShown = !landscape
+            inputState.keyboardShown = !landscape && !screenOn
+        }
+        .onChange(of: screenOn) { _, on in
+            // With the picture up, the picture is the point: keyboard down until asked for.
+            inputState.keyboardShown = !on && !isLandscape
+            showKeysPanel = false
         }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
@@ -198,6 +209,104 @@ struct ContentView: View {
         .frame(width: width)
     }
 
+    // MARK: Screen layout
+
+    /// With the Mac's picture on, the picture gets the whole window but one slim bar: the
+    /// keys the strip normally shows live in a panel that floats over the picture on demand,
+    /// and the iOS keyboard is summoned from the bar. Sideways, the body ignores the keyboard
+    /// (see `body`), so everything is inset by hand to sit above it; upright, keyboard
+    /// avoidance at the root shrinks the picture for us.
+    private var screenBody: some View {
+        GeometryReader { geo in
+            let bottom = geo.frame(in: .global).maxY
+            let keyboardTop = keyboardTops[sizeKey] ?? (bottom - geo.size.height * 0.40)
+            let inset = isLandscape && inputState.keyboardShown ? max(0, bottom - keyboardTop + 8) : 0
+            VStack(spacing: 6) {
+                trackpad
+                    .overlay(alignment: .bottomTrailing) {
+                        if showKeysPanel { keysPanel }
+                    }
+                screenBar
+            }
+            .padding(.bottom, inset)
+        }
+        .padding(.top, 4)
+    }
+
+    private var screenBar: some View {
+        HStack(spacing: 8) {
+            Menu {
+                ForEach(client.services) { service in
+                    Button(service.name) { client.connect(to: service) }
+                }
+                if client.services.isEmpty { Text("No Macs found yet") }
+            } label: {
+                Circle()
+                    .fill(client.isConnected ? Color.green : Color.orange)
+                    .frame(width: 9, height: 9)
+                    .padding(.horizontal, 6)
+                    .frame(maxHeight: .infinity)
+            }
+            .accessibilityLabel(client.status)
+            barButton("display.2", label: "Hide the computer's screen") { settings.showScreen = false }
+            barButton(showKeysPanel ? "command.square.fill" : "command.square", label: showKeysPanel ? "Hide keys" : "Show keys") {
+                showKeysPanel.toggle()
+            }
+            barButton(inputState.keyboardShown ? "keyboard.chevron.compact.down" : "keyboard",
+                      label: inputState.keyboardShown ? "Hide keyboard" : "Show keyboard") {
+                inputState.keyboardShown.toggle()
+            }
+            mouseButtons
+            if controller.controllerName != nil {
+                Image(systemName: "gamecontroller.fill")
+                    .foregroundStyle(.green)
+                    .accessibilityLabel("Controller connected")
+            }
+            barButton("gearshape", label: "Settings") { showSettings = true }
+        }
+        .frame(height: 36)
+        .background(keyInput)   // zero footprint: the iOS keyboard still needs its owner on screen
+    }
+
+    private func barButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .frame(width: 44)
+                .frame(maxHeight: .infinity)
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    /// The key strip as a translucent card over the picture. Drag it by the handle; the
+    /// F-key bar swaps rows rather than growing, so the card keeps its size.
+    private var keysPanel: some View {
+        VStack(spacing: 6) {
+            Capsule()
+                .fill(Color.secondary.opacity(0.5))
+                .frame(width: 36, height: 5)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            keysOffset = CGSize(width: keysOffsetBase.width + value.translation.width,
+                                                height: keysOffsetBase.height + value.translation.height)
+                        }
+                        .onEnded { _ in keysOffsetBase = keysOffset }
+                )
+            KeyStripView(client: client, state: inputState, rowHeight: 38, replacesRowsWhenExpanded: true)
+        }
+        .padding(8)
+        .frame(width: min(400, max(280, windowSize.width - 32)))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
+        .padding(10)
+        .offset(keysOffset)
+    }
+
     private var keyInput: some View {
         KeyInputView(client: client, state: inputState)
             .frame(width: 1, height: 1)
@@ -241,14 +350,19 @@ struct ContentView: View {
     }
 
     private var trackpad: some View {
-        ZStack {
+        // With the key panel out, the picture hugs the top-left corner so the panel sits in
+        // the letterbox space instead of over the picture (which matters once the iOS
+        // keyboard has squeezed it).
+        ZStack(alignment: showKeysPanel ? .topLeading : .center) {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
             if screenOn, client.isConnected {
                 ScreenView(receiver: screen)
+                    .aspectRatio(screen.videoSize == .zero ? nil : screen.videoSize.width / screen.videoSize.height, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
-            TrackpadView(client: client, settings: settings, videoSize: screenOn && settings.tapToPoint ? screen.videoSize : .zero)
+            TrackpadView(client: client, settings: settings, videoSize: screenOn && settings.tapToPoint ? screen.videoSize : .zero,
+                         videoTopLeading: showKeysPanel)
                 .background(
                     GeometryReader { geo in
                         Color.clear.onChange(of: geo.size, initial: true) { _, size in
@@ -312,6 +426,7 @@ struct ContentView: View {
         }
         .foregroundStyle(.secondary)
         .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(screen.hostMessage == "denied")
     }
 
