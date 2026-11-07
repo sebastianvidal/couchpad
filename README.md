@@ -9,10 +9,10 @@ code or QR, and talks to it over one encrypted TCP connection on your network.
 **Status (November 2026)**
 - **iPhone:** public **TestFlight beta** — https://testflight.apple.com/join/kY67K51G — ahead
   of a free App Store release. Supports iPhone Duo, folded or unfolded, in both orientations.
-- **Mac:** **1.1 released**, signed and notarized —
-  [download](https://github.com/sebastianvidal/couchpad/releases/latest). 1.1 brings encrypted
-  sessions and hardened pairing; it needs the current iPhone build. 1.2 (the screen stream
-  over UDP, below) is in `main` and ships with the next TestFlight build.
+- **Mac:** **1.2 released**, signed and notarized —
+  [download](https://github.com/sebastianvidal/couchpad/releases/latest). 1.2 streams the
+  Mac's screen to the phone over encrypted UDP (below) on top of 1.1's encrypted sessions and
+  hardened pairing; it needs the current iPhone build.
 - **Windows:** compiles, not yet run on a real Windows machine (see the appendix).
 - **New:** the Mac's screen on the phone. Turn it on with the display icon next to the gear;
   the picture fills the trackpad, which keeps working as a trackpad (or, as an option, the
@@ -32,7 +32,7 @@ Site: https://sebastianvidal.github.io/couchpad/
 1. **iPhone:** install [TestFlight](https://apps.apple.com/app/testflight/id899247664), then
    open https://testflight.apple.com/join/kY67K51G on the phone and tap Install. Allow
    **Local Network** when asked, otherwise the app can't find your computer.
-2. **Mac:** download `Couchpad-1.1.dmg` from
+2. **Mac:** download `Couchpad-1.2.dmg` from
    [Releases](https://github.com/sebastianvidal/couchpad/releases/latest), drag Couchpad to
    Applications, open it. A cursor icon appears in the menu bar. Grant **Accessibility** when
    macOS asks (System Settings → Privacy & Security → Accessibility); that permission is what
