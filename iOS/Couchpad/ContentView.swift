@@ -416,8 +416,9 @@ struct ContentView: View {
             .opacity(0.01)
     }
 
+    /// Same buttons as the screen bar (`barButton`): flat squares, no accent tint.
     private var topBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Circle()
                 .fill(client.isConnected ? Color.green : Color.orange)
                 .frame(width: 9, height: 9)
@@ -434,6 +435,7 @@ struct ContentView: View {
                     .lineLimit(1)
                     .foregroundStyle(.secondary)
             }
+            .tint(.secondary)   // the menu would paint its label in the accent colour
             Spacer()
             if controller.controllerName != nil {
                 Image(systemName: "gamecontroller.fill")
@@ -441,14 +443,15 @@ struct ContentView: View {
                     .accessibilityLabel("Controller connected")
             }
             if screenAvailable, client.isConnected {
-                Button { settings.showScreen.toggle() } label: {
-                    Image(systemName: settings.showScreen ? "display.2" : "display")
+                barButton(settings.showScreen ? "display.2" : "display",
+                          label: settings.showScreen ? "Hide the computer's screen" : "Show the computer's screen") {
+                    settings.showScreen.toggle()
                 }
-                .accessibilityLabel(settings.showScreen ? "Hide the computer's screen" : "Show the computer's screen")
             }
-            Button { showSetup = true } label: { Image(systemName: "questionmark.circle") }
-            Button { showSettings = true } label: { Image(systemName: "gearshape") }
+            barButton("questionmark.circle", label: "Setup guide") { showSetup = true }
+            barButton("gearshape", label: "Settings") { showSettings = true }
         }
+        .frame(height: 36)
         .padding(.top, 4)
     }
 
