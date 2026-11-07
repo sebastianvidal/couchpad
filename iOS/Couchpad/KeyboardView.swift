@@ -1,7 +1,9 @@
 import SwiftUI
 
 struct Key: Identifiable {
-    let id = UUID()
+    /// Keycodes are unique across the strip, and stable across view rebuilds (a UUID would
+    /// change every time SwiftUI remade the strip).
+    var id: Int { code }
     let label: String
     let code: Int            // macOS virtual keycode
     var width: CGFloat = 1   // in grid columns
@@ -29,6 +31,10 @@ struct KeyStripView: View {
     /// three main rows for the two F-key rows in the same space instead of adding rows.
     var replacesRowsWhenExpanded = false
     @State private var showF = false
+    /// Where each visible key is, in the strip's coordinate space, for the touch overlay.
+    @State private var keyFrames: [Int: CGRect] = [:]
+    /// Keys currently under a finger (modifiers show as held instead).
+    @State private var pressedKeys = Set<Int>()
 
     private let gap: CGFloat = 4
     private let columns: CGFloat = 7
@@ -66,6 +72,12 @@ struct KeyStripView: View {
     /// Two F rows standing in for three main rows share their exact height.
     private var swappedRowHeight: CGFloat { (3 * rowHeight + 2 * gap - gap) / 2 }
 
+    private var allKeys: [Int: Key] {
+        var keys: [Int: Key] = [:]
+        for key in topRow + modifierRow + spaceRow + [left, right, up, down] + fRows.flatMap({ $0 }) { keys[key.code] = key }
+        return keys
+    }
+
     var body: some View {
         GeometryReader { geo in
             let unit = (geo.size.width - gap * (columns - 1)) / columns
@@ -95,6 +107,13 @@ struct KeyStripView: View {
                 }
                 }
             }
+            .coordinateSpace(name: "keys")
+            .onPreferenceChange(KeyFramesKey.self) { keyFrames = $0 }
+            // One multi-touch surface over all the keys: a finger that slides from one key
+            // to the next releases the first and presses the next, like rolling across a
+            // real keyboard. Touches outside the keys fall through to the bar's buttons.
+            .overlay(KeyTouchOverlay(frames: keyFrames, keys: allKeys, onPress: press, onRelease: release,
+                                     onPressedChange: { pressedKeys = $0 }))
         }
         .frame(height: height)
     }
@@ -156,11 +175,10 @@ struct KeyStripView: View {
         if windows && key.windowsLabel == "" {
             Color.clear
         } else {
-            KeyButton(key: key, isHeld: state.heldModifiers.contains(key.code), windows: windows) {
-                press(key)
-            } onUp: {
-                release(key)
-            }
+            KeyButton(key: key, pressed: pressedKeys.contains(key.code), isHeld: state.heldModifiers.contains(key.code), windows: windows)
+                .background(GeometryReader { geo in
+                    Color.clear.preference(key: KeyFramesKey.self, value: [key.code: geo.frame(in: .named("keys"))])
+                })
         }
     }
 
@@ -189,13 +207,112 @@ struct KeyStripView: View {
     }
 }
 
+struct KeyFramesKey: PreferenceKey {
+    static var defaultValue: [Int: CGRect] = [:]
+    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+struct KeyTouchOverlay: UIViewRepresentable {
+    var frames: [Int: CGRect]
+    var keys: [Int: Key]
+    var onPress: (Key) -> Void
+    var onRelease: (Key) -> Void
+    var onPressedChange: (Set<Int>) -> Void
+
+    func makeUIView(context: Context) -> KeyTouchUIView {
+        let view = KeyTouchUIView()
+        view.isMultipleTouchEnabled = true
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: KeyTouchUIView, context: Context) {
+        uiView.frames = frames
+        uiView.keys = keys
+        uiView.onPress = onPress
+        uiView.onRelease = onRelease
+        uiView.onPressedChange = onPressedChange
+    }
+}
+
+final class KeyTouchUIView: UIView {
+    var frames: [Int: CGRect] = [:]
+    var keys: [Int: Key] = [:]
+    var onPress: ((Key) -> Void)?
+    var onRelease: ((Key) -> Void)?
+    var onPressedChange: ((Set<Int>) -> Void)?
+    /// The non-modifier key each finger is holding down, if any.
+    private var held: [ObjectIdentifier: Int] = [:]
+    private var pressed = Set<Int>()
+
+    /// Only the keys are ours; anything else (the F-bar buttons) is for the views below.
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        frames.values.contains { $0.contains(point) }
+    }
+
+    private func key(at point: CGPoint) -> Key? {
+        guard let code = frames.first(where: { $0.value.contains(point) })?.key else { return nil }
+        return keys[code]
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        for touch in touches {
+            guard let key = key(at: touch.location(in: self)) else { continue }
+            onPress?(key)   // modifiers toggle here and only here
+            if !key.isModifier {
+                held[ObjectIdentifier(touch)] = key.code
+                pressed.insert(key.code)
+            }
+        }
+        onPressedChange?(pressed)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        var changed = false
+        for touch in touches {
+            let id = ObjectIdentifier(touch)
+            let under = key(at: touch.location(in: self))
+            guard under?.code != held[id] else { continue }
+            if let code = held[id], let key = keys[code] {
+                onRelease?(key)
+                pressed.remove(code)
+                held[id] = nil
+                changed = true
+            }
+            // Sliding onto a modifier does nothing: toggling one by accident is worse than missing it.
+            if let under, !under.isModifier {
+                onPress?(under)
+                held[id] = under.code
+                pressed.insert(under.code)
+                changed = true
+            }
+        }
+        if changed { onPressedChange?(pressed) }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { lift(touches) }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { lift(touches) }
+
+    private func lift(_ touches: Set<UITouch>) {
+        for touch in touches {
+            let id = ObjectIdentifier(touch)
+            if let code = held[id], let key = keys[code] {
+                onRelease?(key)
+                pressed.remove(code)
+                held[id] = nil
+            }
+        }
+        onPressedChange?(pressed)
+    }
+}
+
 struct KeyButton: View {
     let key: Key
+    let pressed: Bool
     let isHeld: Bool
     var windows = false
-    let onDown: () -> Void
-    let onUp: () -> Void
-    @State private var pressed = false
 
     var body: some View {
         ZStack {
@@ -214,19 +331,5 @@ struct KeyButton: View {
             .fontWeight(.medium)
             .foregroundStyle(pressed || isHeld ? Color.white : Color.primary)
         }
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    if !pressed {
-                        pressed = true
-                        onDown()
-                    }
-                }
-                .onEnded { _ in
-                    pressed = false
-                    onUp()
-                }
-        )
     }
 }

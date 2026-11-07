@@ -22,6 +22,9 @@ struct ContentView: View {
     @State private var showScanner = false
     /// Screen layout: the floating key panel and where the user dragged it.
     @State private var showKeysPanel = false
+    /// A foldable held half open: the picture goes on the half that stands up, the controls
+    /// on the half lying flat. Reported by the system; always false elsewhere.
+    @State private var hingePartlyOpen = false
     @State private var keysOffset = CGSize.zero
     @State private var keysOffsetBase = CGSize.zero
     /// Top edge of the iOS keyboard in landscape (window coordinates), measured the first
@@ -31,7 +34,9 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if screenOn, client.isConnected {
+            if hingeLayout {
+                hingeBody
+            } else if screenOn, client.isConnected {
                 screenBody
             } else if isLandscape {
                 landscapeBody
@@ -43,8 +48,11 @@ struct ContentView: View {
         .padding(.bottom, 8)
         // Keyboard avoidance is applied at the root, so it has to be switched off here:
         // sideways, nothing moves for the keyboard (the trackpad is inset by hand instead).
-        .ignoresSafeArea(isLandscape ? .keyboard : [])
+        .ignoresSafeArea(isLandscape || hingeLayout ? .keyboard : [])
         .background(Color(.systemBackground))
+        .background(HingeObserver(partlyOpen: $hingePartlyOpen))
+        // The picture is the point of screen mode: the clock and the signal bars can go.
+        .statusBarHidden(screenOn && client.isConnected)
         .background(
             // Measures the whole window, ignoring the keyboard and the safe areas, so the
             // portrait/landscape decision never flips because a keyboard came up.
@@ -82,7 +90,8 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
             guard let frame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
             // The frame is in screen coordinates; on a phone the window fills the screen.
-            guard isLandscape, frame.minY > windowSize.height * 0.3, frame.minY < windowSize.height else { return }
+            // Keyed by window size, so each orientation and posture learns its own.
+            guard frame.minY > windowSize.height * 0.3, frame.minY < windowSize.height else { return }
             var tops = keyboardTops
             tops[sizeKey] = frame.minY
             if let data = try? JSONEncoder().encode(tops), let json = String(data: data, encoding: .utf8) {
@@ -115,6 +124,7 @@ struct ContentView: View {
     /// The picture is only offered by Macs for now; the setting is remembered regardless.
     private var screenAvailable: Bool { client.hostPlatform == .mac }
     private var screenOn: Bool { settings.showScreen && screenAvailable }
+    private var hingeLayout: Bool { screenOn && client.isConnected && hingePartlyOpen }
 
     /// Tells the host whether we want its screen and at what size. Called whenever the
     /// connection, the setting or the trackpad's size changes; the host restarts the stream
@@ -207,6 +217,59 @@ struct ContentView: View {
             }
         }
         .frame(width: width)
+    }
+
+    // MARK: Half-open foldable
+
+    /// Split at the hinge, which runs across the middle of the window's long side: the
+    /// picture on one half, a plain trackpad with the keys and the bar on the other. Upright
+    /// (hinge horizontal, laptop-style) the picture is the top half; sideways (hinge
+    /// vertical, like a book) the picture is on the side opposite the trackpad.
+    private var hingeBody: some View {
+        GeometryReader { geo in
+            let frame = geo.frame(in: .global)
+            let keyboardTop = keyboardTops[sizeKey] ?? (frame.maxY - geo.size.height * 0.40)
+            let inset = inputState.keyboardShown ? max(0, frame.maxY - keyboardTop + 8) : 0
+            let gap: CGFloat = 24   // keeps touches and the picture's edge off the crease
+            if isLandscape {
+                let hingeX = windowSize.width / 2 - frame.minX
+                HStack(spacing: 0) {
+                    if settings.trackpadOnRight {
+                        trackpadPane(picture: true).frame(width: hingeX - gap / 2)
+                        Spacer().frame(width: gap)
+                        hingeControls(inset: inset)
+                    } else {
+                        hingeControls(inset: inset)
+                        Spacer().frame(width: gap)
+                        trackpadPane(picture: true).frame(width: geo.size.width - hingeX - gap / 2)
+                    }
+                }
+            } else {
+                let hingeY = windowSize.height / 2 - frame.minY
+                VStack(spacing: 0) {
+                    trackpadPane(picture: true).frame(height: hingeY - gap / 2)
+                    Spacer().frame(height: gap)
+                    hingeControls(inset: inset)
+                }
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    private func hingeControls(inset: CGFloat) -> some View {
+        GeometryReader { geo in
+            let available = geo.size.height - inset - 36 - 6
+            let rowHeight = min(portraitRowHeight, max(30, (available - 40 - 6 - 100) / 3))
+            let stripHeight = 40 + 3 * rowHeight
+            VStack(spacing: 6) {
+                if available - stripHeight - 6 >= 60 {
+                    trackpadPane(picture: false)
+                }
+                KeyStripView(client: client, state: inputState, rowHeight: rowHeight, replacesRowsWhenExpanded: true)
+                screenBar(keysToggle: false)
+            }
+            .padding(.bottom, inset)
+        }
     }
 
     // MARK: Screen layout
@@ -363,29 +426,35 @@ struct ContentView: View {
         .padding(.top, 4)
     }
 
-    private var trackpad: some View {
+    private var trackpad: some View { trackpadPane(picture: true) }
+
+    /// The trackpad, with the Mac's picture underneath when screen mode is on and `picture`
+    /// asks for it (the half-open layout shows a second, plain trackpad).
+    private func trackpadPane(picture: Bool) -> some View {
+        let showPicture = picture && screenOn && client.isConnected
         // With the key panel out, the picture hugs the top-left corner so the panel sits in
         // the letterbox space instead of over the picture (which matters once the iOS
         // keyboard has squeezed it).
-        ZStack(alignment: showKeysPanel ? .topLeading : .center) {
+        return ZStack(alignment: showKeysPanel && showPicture ? .topLeading : .center) {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
-            if screenOn, client.isConnected {
+            if showPicture {
                 ScreenView(receiver: screen)
                     .aspectRatio(screen.videoSize == .zero ? nil : screen.videoSize.width / screen.videoSize.height, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
-            TrackpadView(client: client, settings: settings, videoSize: screenOn && settings.tapToPoint ? screen.videoSize : .zero,
+            TrackpadView(client: client, settings: settings, videoSize: showPicture && settings.tapToPoint ? screen.videoSize : .zero,
                          videoTopLeading: showKeysPanel)
                 .background(
                     GeometryReader { geo in
                         Color.clear.onChange(of: geo.size, initial: true) { _, size in
+                            guard picture else { return }   // the stream is sized to the picture's pane
                             trackpadPixels = CGSize(width: size.width * displayScale, height: size.height * displayScale)
                         }
                     }
                 )
             switch client.phase {
-            case .paired where screenOn && screen.videoSize == .zero:
+            case .paired where showPicture && screen.videoSize == .zero:
                 screenPlaceholder
             case .paired:
                 EmptyView()

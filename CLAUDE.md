@@ -67,6 +67,10 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   landscape keyboard-top measurement is stored per window size (`landscapeKeyboardTops`).
 - The system puts a vertical status bar on one long edge; it arrives as a safe-area inset,
   so nothing in the app should assume insets are symmetric or orientation-bound.
+- Posture comes from iOS 27.1's `UIHingeInteraction` (`HingeObserver.swift`): closed /
+  partiallyOpen / fullyOpen. Half open with the picture on, ContentView splits at the hinge
+  (assumed at the middle of the window's long side). Device Hub's "Partially Open" button
+  drives it on the simulator.
 
 ## Screen streaming (Mac → phone)
 - `Mac/Sources/CouchpadMac/ScreenStreamer.swift`: ScreenCaptureKit → VideoToolbox (HEVC,
