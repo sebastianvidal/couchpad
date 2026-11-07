@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import IOKit.pwr_mgt
 
 /// Turns protocol lines into CGEvents. Line format (space separated):
 ///   m dx dy        move pointer by delta (also carried as raw mouse delta for games)
@@ -22,10 +23,13 @@ final class Injector {
     private var clickCount: Int64 = 0
     private var cachedBounds = CGRect.zero
     private var boundsCachedAt: TimeInterval = 0
+    private var lastUserActivity: TimeInterval = 0
+    private var userActivityID: IOPMAssertionID = 0
 
     func handle(_ line: String) {
         let parts = line.split(separator: " ", omittingEmptySubsequences: true)
         guard let command = parts.first else { return }
+        declareUserActivity()
         switch command {
         case "m":
             guard parts.count >= 3, let dx = Int(parts[1]), let dy = Int(parts[2]) else { return }
@@ -57,6 +61,17 @@ final class Injector {
         default:
             break
         }
+    }
+
+    /// Synthetic CGEvents don't count as user activity, so a sleeping display stays dark
+    /// and the idle timer keeps running while the phone is in use. Tell power management
+    /// a user is here: this wakes the display if it's asleep and resets the idle timer.
+    /// Throttled; the declaration is good for a few seconds anyway.
+    private func declareUserActivity() {
+        let now = Date().timeIntervalSince1970
+        if now - lastUserActivity < 2 { return }
+        lastUserActivity = now
+        IOPMAssertionDeclareUserActivity("Couchpad input" as CFString, kIOPMUserActiveLocal, &userActivityID)
     }
 
     /// Three-finger swipes from the phone, as the keyboard shortcuts for the same actions
