@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Couchpad — The Mac's screen on your phone</title>
+<meta name="description" content="How Couchpad puts the Mac's screen on your iPhone: turning it on, what the trackpad and keys do with the picture up, the quality setting, what to expect on Wi-Fi, and how it works.">
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header>
+    <img src="icon.png" alt="">
+    <div>
+      <h1>The Mac's screen, on your phone</h1>
+      <p>Glance down instead of across the room</p>
+    </div>
+  </header>
+
+  <p class="hero">With the picture on, the trackpad shows what the Mac shows. You still swipe to move the pointer and tap to click, you just see where it lands without looking up at the TV. Mac companion 1.2 or later; Mac only for now.</p>
+
+  <h2>Turn it on</h2>
+  <ol>
+    <li><strong>Tap the display icon</strong> next to the gear on the phone (or gear → Screen → "Show the Mac's screen on the trackpad").</li>
+    <li><strong>Allow Screen Recording once.</strong> The first time, macOS asks whether Couchpad may record the screen; that permission is what lets it capture the picture. If the phone says access is missing, open System Settings → Privacy &amp; Security → Screen Recording, switch Couchpad on, and tap the icon again. macOS may ask you to quit and reopen Couchpad after granting it.</li>
+    <li>That's it. The picture fills the trackpad area; tap the icon again to hide it.</li>
+  </ol>
+
+  <h2>What the phone does with the picture up</h2>
+  <ul>
+    <li><strong>The trackpad is still a trackpad.</strong> Swipe to move, tap to click, two fingers to scroll, everything as before, on top of the picture.</li>
+    <li><strong>Or touch to point.</strong> Gear → Screen → "Touch the picture to point there": the pointer jumps under your finger, so a tap clicks what you are looking at. Good for clicking around; the swipe mode is better for games and precise work.</li>
+    <li><strong>The keys float.</strong> The key strip becomes a panel you can drag anywhere over the picture, or out of the way. When the screen has room, as on an unfolded iPhone Duo, the keys dock under the picture instead.</li>
+    <li><strong>The iPhone keyboard still comes up</strong> with the keyboard button, and the picture shrinks to make room.</li>
+    <li><strong>iPhone Duo, half open:</strong> the picture sits on the upright half and the flat half is one big trackpad with the key bar.</li>
+    <li><strong>Picture setting:</strong> Smooth, Balanced or Sharp in gear → Screen. Sharper means bigger frames; on a busy Wi‑Fi, Smooth keeps up better.</li>
+  </ul>
+
+  <h2>What to expect</h2>
+  <ul>
+    <li><strong>On a decent Wi‑Fi</strong> the picture follows the pointer with a delay you can see but not feel for desktop work: up to 60 frames a second, and the Mac paces itself by the phone's acknowledgements so lag cannot pile up.</li>
+    <li><strong>A lost packet costs a frame, not a freeze.</strong> Frames go over UDP with parity and quick retransmits, so the usual Wi‑Fi hiccup shows as a skipped frame. Where UDP is blocked the picture still works, over the main connection, just with more stalls.</li>
+    <li><strong>On a lossy mesh or crowded 2.4 GHz network</strong> it still hiccups more than a game wants. Moving the Mac or the phone onto 5 GHz, or closer to the access point, helps more than any setting.</li>
+    <li><strong>Away from home</strong> through a VPN it works too, a little laggier. See <a href="remote.html">Away from home</a>.</li>
+    <li>If the picture stops, the Mac's menu-bar icon shows whether a phone is connected; toggling the display icon on the phone forces a fresh keyframe.</li>
+  </ul>
+
+  <h2>How it works, briefly</h2>
+  <p>The Mac captures its display with ScreenCaptureKit and encodes it in hardware as HEVC (H.264 where HEVC isn't available), scaled to fit the phone's screen. Frames are split into small encrypted datagrams and sent over UDP, with one parity packet per few data packets so a single loss costs nothing; the phone asks for anything still missing by number and gives up on a frame rather than wait. Everything is sealed with keys derived from the session's key exchange, the same one that protects your typing, so the picture is as private as the input. The full design is in the <a href="https://github.com/sebastianvidal/couchpad#appendix-b-protocol">README</a>.</p>
+
+  <h2>Privacy</h2>
+  <p>The picture goes from the Mac to your phone and nowhere else. Nothing is recorded or stored; Screen Recording permission is used only while the picture is on. Windows hosts don't stream yet and the phone hides the toggle for them.</p>
+
+  <footer>
+    <a href="index.html">← Couchpad</a> · <a href="remote.html">Away from home</a> · Problems or ideas: <a href="https://github.com/sebastianvidal/couchpad/issues">open an issue</a>.
+  </footer>
+</main>
+</body>
+</html>
