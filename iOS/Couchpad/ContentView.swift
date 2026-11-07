@@ -256,20 +256,17 @@ struct ContentView: View {
         .padding(.top, 4)
     }
 
+    /// The flat half: a big trackpad over the bar, with the keys floating over the trackpad
+    /// on demand, the same as the sideways screen layout.
     private func hingeControls(inset: CGFloat) -> some View {
-        GeometryReader { geo in
-            let available = geo.size.height - inset - 36 - 6
-            let rowHeight = min(portraitRowHeight, max(30, (available - 40 - 6 - 100) / 3))
-            let stripHeight = 40 + 3 * rowHeight
-            VStack(spacing: 6) {
-                if available - stripHeight - 6 >= 60 {
-                    trackpadPane(picture: false)
+        VStack(spacing: 6) {
+            trackpadPane(picture: false)
+                .overlay(alignment: .bottomTrailing) {
+                    if showKeysPanel { keysPanel }
                 }
-                KeyStripView(client: client, state: inputState, rowHeight: rowHeight, replacesRowsWhenExpanded: true)
-                screenBar(keysToggle: false)
-            }
-            .padding(.bottom, inset)
+            screenBar(keysToggle: true)
         }
+        .padding(.bottom, inset)
     }
 
     // MARK: Screen layout
