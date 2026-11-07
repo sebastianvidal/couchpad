@@ -47,8 +47,8 @@ a { color: #8f98ff; }
 }
 
 /* Status line, hero row with screenshot, feature grid */
-.status { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; font-size: 15px; margin: 0 0 28px; }
-.status .dot { width: 9px; height: 9px; border-radius: 50%; background: #f5a524; flex: none; }
+.status { display: block; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; font-size: 15px; margin: 0 0 28px; }
+.status .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #f5a524; margin: 0 8px 2px 0; vertical-align: middle; }
 .hero-row { display: flex; gap: 28px; align-items: flex-start; }
 .hero-text { flex: 1; }
 .shot { margin: 0; flex: none; width: 220px; }
