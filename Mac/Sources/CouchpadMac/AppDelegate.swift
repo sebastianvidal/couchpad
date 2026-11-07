@@ -143,7 +143,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refresh()
     }
 
+    /// First routable IPv4 address, preferring the built-in interfaces (en*) over VPN tunnels.
+    /// Read straight from the interface list: `Host.current().addresses` resolves the hostname
+    /// through DNS and took 5 s on the main thread every time the menu opened.
     private func localIPv4() -> String? {
-        Host.current().addresses.first { $0.contains(".") && !$0.hasPrefix("127.") && !$0.hasPrefix("169.254.") }
+        var list: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&list) == 0, let first = list else { return nil }
+        defer { freeifaddrs(list) }
+        var candidates: [(name: String, address: String)] = []
+        for p in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            let ifa = p.pointee
+            guard let sa = ifa.ifa_addr, sa.pointee.sa_family == UInt8(AF_INET),
+                  ifa.ifa_flags & UInt32(IFF_UP) != 0, ifa.ifa_flags & UInt32(IFF_LOOPBACK) == 0 else { continue }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            guard getnameinfo(sa, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 else { continue }
+            let address = String(cString: host)
+            if address.hasPrefix("169.254.") { continue }
+            candidates.append((String(cString: ifa.ifa_name), address))
+        }
+        return (candidates.first { $0.name.hasPrefix("en") } ?? candidates.first)?.address
     }
 }
