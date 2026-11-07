@@ -36,7 +36,7 @@ Site: https://sebastianvidal.github.io/couchpad/
 1. **iPhone:** install [TestFlight](https://apps.apple.com/app/testflight/id899247664), then
    open https://testflight.apple.com/join/kY67K51G on the phone and tap Install. Allow
    **Local Network** when asked, otherwise the app can't find your computer.
-2. **Mac:** download `Couchpad-1.2.dmg` from
+2. **Mac:** download `Couchpad-1.3.dmg` from
    [Releases](https://github.com/sebastianvidal/couchpad/releases/latest), drag Couchpad to
    Applications, open it. A cursor icon appears in the menu bar. Grant **Accessibility** when
    macOS asks (System Settings → Privacy & Security → Accessibility); that permission is what
