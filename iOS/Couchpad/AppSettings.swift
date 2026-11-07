@@ -15,6 +15,9 @@ final class AppSettings: ObservableObject {
     /// With the picture on: touching it puts the pointer under the finger instead of the
     /// trackpad's usual relative moves.
     @Published var tapToPoint: Bool { didSet { save("tapToPoint", tapToPoint) } }
+    /// Picture resolution as a share of the trackpad's pixels: 0 half, 1 two thirds, 2 full.
+    /// Fewer pixels mean smaller frames, which is what latency over Wi-Fi comes down to.
+    @Published var screenQuality: Int { didSet { save("screenQuality", screenQuality) } }
 
     init() {
         let d = UserDefaults.standard
@@ -29,6 +32,7 @@ final class AppSettings: ObservableObject {
         trackpadOnRight = d.object(forKey: "trackpadOnRight") as? Bool ?? false
         showScreen = d.object(forKey: "showScreen") as? Bool ?? false
         tapToPoint = d.object(forKey: "tapToPoint") as? Bool ?? false
+        screenQuality = d.object(forKey: "screenQuality") as? Int ?? 1
     }
 
     private func save(_ key: String, _ value: Any) {

@@ -182,6 +182,7 @@ t text       type text (each character is pressed as its key; shift added as nee
 r            release everything
 M fx fy      put the pointer at a point on the streamed display (fractions 0…1 of its size)
 v 1 w h fps  start streaming the screen, scaled to fit w×h pixels   ·   v 0 stop   ·   v k send a keyframe
+v a pts      the phone got the frame with that timestamp (the host paces capture by these)
 ```
 
 The host releases every held key and button when a phone disconnects.
@@ -190,8 +191,10 @@ Screen frames travel the other way as binary messages inside the same channel: a
 whose first byte is 0x00 (a text line never starts with one) carries one HEVC or H.264 frame
 with its size, timestamp and, on keyframes, the codec's parameter sets (`ScreenPacket` in
 `SecureChannel.swift`). A host that can't stream answers with a text line `screen denied`
-(Screen Recording not allowed) or `screen error <why>`. The host drops frames rather than
-queueing them when the phone falls behind, then sends a keyframe to resync.
+(Screen Recording not allowed) or `screen error <why>`. The phone acknowledges every frame;
+when the unacknowledged backlog exceeds a few frames the host skips capturing until it clears,
+which costs no keyframe. Frames already encoded are dropped only as a last resort, followed by
+a keyframe to resync.
 
 ## Appendix C: Releasing
 

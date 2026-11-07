@@ -34,6 +34,9 @@ final class ScreenReceiver: ObservableObject {
 
     func handle(_ packet: Data) {
         guard let frame = ScreenPacket.decode(packet) else { return }
+        // Tell the host this frame arrived; it paces the capture by what we have acknowledged,
+        // so lag never builds up in the network. Acked even if we can't show it.
+        client?.send("v a \(frame.presentationMicros)")
         if frame.keyframe, !frame.parameterSets.isEmpty {
             if format == nil || hevc != frame.hevc || Int(videoSize.width) != frame.width || Int(videoSize.height) != frame.height {
                 layer.flush()

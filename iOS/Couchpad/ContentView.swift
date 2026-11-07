@@ -98,6 +98,7 @@ struct ContentView: View {
         .onChange(of: client.phase) { _, _ in syncScreen() }
         .onChange(of: settings.showScreen) { _, _ in syncScreen() }
         .onChange(of: trackpadPixels) { _, _ in syncScreen() }
+        .onChange(of: settings.screenQuality) { _, _ in syncScreen() }
     }
 
     /// The picture is only offered by Macs for now; the setting is remembered regardless.
@@ -110,7 +111,8 @@ struct ContentView: View {
     private func syncScreen() {
         guard client.isConnected else { screen.reset(); return }
         if screenOn, trackpadPixels.width > 0 {
-            client.send("v 1 \(Int(trackpadPixels.width)) \(Int(trackpadPixels.height)) 30")
+            let share = [0.5, 2.0 / 3.0, 1.0][max(0, min(2, settings.screenQuality))]
+            client.send("v 1 \(Int(trackpadPixels.width * share)) \(Int(trackpadPixels.height * share)) 30")
         } else {
             client.send("v 0")
             screen.reset()
@@ -394,6 +396,14 @@ struct ContentView: View {
                 Section("Screen") {
                     Toggle("Show the Mac's screen on the trackpad", isOn: $settings.showScreen)
                     Text("The trackpad works as usual on top of the picture. Needs Screen Recording access for Couchpad on the Mac; the Mac asks the first time. Mac only for now.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Picker("Picture", selection: $settings.screenQuality) {
+                        Text("Smooth").tag(0)
+                        Text("Balanced").tag(1)
+                        Text("Sharp").tag(2)
+                    }
+                    .pickerStyle(.segmented)
+                    Text("Sharper means bigger frames and more lag on a busy Wi-Fi.")
                         .font(.footnote).foregroundStyle(.secondary)
                     Toggle("Touch the picture to point there", isOn: $settings.tapToPoint)
                     Text("The pointer jumps to where your finger is, so a tap clicks what is under it. Off, a swipe moves the pointer and a tap clicks where it is.")

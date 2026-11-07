@@ -15,6 +15,12 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     var onFrame: ((ScreenPacket.Frame) -> Void)?
     /// Problems worth telling the phone about ("denied", "error …").
     var onStatus: ((String) -> Void)?
+    /// Asked before each captured frame is encoded. Returning true skips the frame: a phone
+    /// is behind and sending more would only queue up lag. Skipping before the encoder keeps
+    /// the reference chain intact, so no keyframe is needed afterwards.
+    var isCongested: (() -> Bool)?
+    /// Average encoded bytes per frame at the current settings, for sizing the backlog cap.
+    private(set) var bytesPerFrame = 40_000
 
     /// Bounds (in points, global display space) of the display being streamed, for mapping
     /// the phone's absolute pointer. Set once the stream starts; the main display before that.
@@ -141,15 +147,18 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         guard status == noErr, let session else { throw NSError(domain: "Couchpad", code: Int(status), userInfo: [NSLocalizedDescriptionKey: "no video encoder"]) }
         let pixelsPerSecond = Double(size.width * size.height) * Double(fps)
         let bitrate = Int(max(2_000_000, min(25_000_000, pixelsPerSecond * 0.12)))
+        bytesPerFrame = bitrate / 8 / fps
         let props: [CFString: Any] = [
             kVTCompressionPropertyKey_RealTime: true,
             kVTCompressionPropertyKey_AllowFrameReordering: false,
             kVTCompressionPropertyKey_AllowTemporalCompression: true,
             kVTCompressionPropertyKey_ProfileLevel: hevc ? kVTProfileLevel_HEVC_Main_AutoLevel : kVTProfileLevel_H264_Main_AutoLevel,
             kVTCompressionPropertyKey_AverageBitRate: bitrate,
-            kVTCompressionPropertyKey_DataRateLimits: [bitrate / 8 * 2, 1] as CFArray,   // bytes per 1 s, with headroom for keyframes
+            kVTCompressionPropertyKey_DataRateLimits: [bitrate / 8 * 3 / 2, 1] as CFArray,   // bytes per 1 s, with headroom for keyframes
             kVTCompressionPropertyKey_ExpectedFrameRate: fps,
-            kVTCompressionPropertyKey_MaxKeyFrameInterval: fps * 10,
+            // Keyframes are many times the size of other frames; the phone asks for one
+            // whenever it needs it, so the periodic ones are only a safety net.
+            kVTCompressionPropertyKey_MaxKeyFrameInterval: fps * 30,
             kVTCompressionPropertyKey_MaxFrameDelayCount: 0,
             kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality: true,
         ]
@@ -166,6 +175,9 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
             return
         }
         lastBuffer = buffer
+        // Behind? Skip this frame rather than queue it; the next one encodes against the
+        // last frame the phone actually got.
+        if !forceKeyframe, isCongested?() == true { return }
         encode(buffer, now: CFAbsoluteTimeGetCurrent())
     }
 

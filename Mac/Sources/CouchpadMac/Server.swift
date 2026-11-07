@@ -19,6 +19,11 @@ final class Server {
         var wantsScreen = false
         var inflight = 0
         var needsKeyframe = true
+        /// Frames sent but not yet acknowledged by the phone (`v a <pts>`), oldest first:
+        /// the true backlog, including what sits in the kernel and on the air.
+        var unacked: [(pts: UInt64, bytes: Int, sentAt: CFAbsoluteTime)] = []
+        var acks = false
+        var ackDelay = 0.0
         init(_ connection: NWConnection) { self.connection = connection }
     }
 
@@ -35,12 +40,25 @@ final class Server {
     /// Bytes allowed in flight per phone before frames are dropped instead of queued: queuing
     /// turns a Wi-Fi hiccup into seconds of lag, dropping turns it into a brief freeze.
     private let inflightCap = 600 * 1024
+    /// Backlog (bytes sent, not yet acknowledged by the phone) above which the capture skips
+    /// frames: a couple of frames' worth, so a Wi-Fi hiccup costs frames, not lag.
+    private var backlogCap: Int { max(64 * 1024, ScreenStreamer.shared.bytesPerFrame * 3) }
 
     init(port: UInt16, onChange: @escaping () -> Void) throws {
         self.port = port
         self.onChange = onChange
         ScreenStreamer.shared.onFrame = { [weak self] frame in
             self?.queue.async { self?.broadcast(frame) }
+        }
+        ScreenStreamer.shared.isCongested = { [weak self] in
+            // Called on the encoder's queue; a stale read is harmless here.
+            guard let self else { return false }
+            let cap = self.backlogCap
+            return self.sessions.values.contains { session in
+                guard session.wantsScreen, session.authenticated else { return false }
+                let backlog = session.acks ? session.unacked.reduce(0) { $0 + $1.bytes } : session.inflight
+                return backlog > cap
+            }
         }
         ScreenStreamer.shared.onStatus = { [weak self] status in
             self?.queue.async {
@@ -198,7 +216,7 @@ final class Server {
     // MARK: Screen streaming
 
     /// `v 1 <maxWidth> <maxHeight> <fps>` starts the picture, `v 0` stops it, `v k` asks for a
-    /// keyframe (the phone lost sync or just came back).
+    /// keyframe (the phone lost sync or just came back), `v a <pts>` acknowledges a frame.
     private func handleScreenCommand(_ line: String, session: Session) {
         let parts = line.split(separator: " ")
         guard parts.count >= 2 else { return }
@@ -207,6 +225,7 @@ final class Server {
             guard parts.count >= 5, let w = Int(parts[2]), let h = Int(parts[3]), let fps = Int(parts[4]), w > 0, h > 0 else { return }
             session.wantsScreen = true
             session.needsKeyframe = true
+            session.unacked.removeAll()
             ScreenStreamer.shared.start(maxWidth: w, maxHeight: h, fps: fps)
         case "0":
             session.wantsScreen = false
@@ -214,9 +233,27 @@ final class Server {
         case "k":
             session.needsKeyframe = true
             ScreenStreamer.shared.requestKeyframe()
+        case "a":
+            guard parts.count >= 3, let pts = UInt64(parts[2]) else { return }
+            session.acks = true
+            let now = CFAbsoluteTimeGetCurrent()
+            while let first = session.unacked.first, first.pts <= pts {
+                session.unacked.removeFirst()
+                if first.pts == pts { session.ackDelay = session.ackDelay * 0.9 + (now - first.sentAt) * 0.1 }
+            }
+            logScreenStats(session, now: now)
         default:
             break
         }
+    }
+
+    private var lastStatsAt = 0.0
+    /// Once in a while, how far behind the phone is: handy when latency feels off.
+    private func logScreenStats(_ session: Session, now: CFAbsoluteTime) {
+        guard now - lastStatsAt > 5 else { return }
+        lastStatsAt = now
+        let backlog = session.unacked.reduce(0) { $0 + $1.bytes }
+        NSLog("Screen: ack delay %.0f ms, backlog %d KB in %d frames", session.ackDelay * 1000, backlog / 1024, session.unacked.count)
     }
 
     private func stopScreenIfUnwanted() {
@@ -237,6 +274,8 @@ final class Server {
             if frame.keyframe { session.needsKeyframe = false }
             guard let cipher = session.send, let sealed = try? cipher.seal(packet) else { continue }
             session.inflight += sealed.count
+            session.unacked.append((frame.presentationMicros, sealed.count, CFAbsoluteTimeGetCurrent()))
+            if session.unacked.count > 600 { session.unacked.removeFirst(300) }   // a phone that never acks
             let size = sealed.count
             session.connection.send(content: sealed, completion: .contentProcessed { [weak self, weak session] _ in
                 self?.queue.async { session?.inflight -= size }

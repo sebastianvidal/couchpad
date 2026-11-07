@@ -82,6 +82,9 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   via `simctl spawn`, pair with `simctl openurl couchpad://pair?...` (an "Open in Couchpad?"
   prompt must be tapped in Device Hub), then watch `log show --predicate 'process == "Couchpad"'`
   for `FigVideoQueue … frames enqueued`. Testing the absolute pointer moves the user's cursor.
+- Latency: the phone acks each frame (`v a <pts>`); the host logs "Screen: ack delay … backlog …"
+  to stderr every 5 s while streaming. Healthy on good Wi-Fi is under ~40 ms and a backlog of
+  0–1 frames. Capture is skipped (not frames dropped) while the backlog exceeds ~3 frames.
 - Windows ignores `v`/`M`; the phone hides the toggle for Windows hosts.
 
 ## Commits
