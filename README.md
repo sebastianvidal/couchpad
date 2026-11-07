@@ -6,18 +6,24 @@ for gaming on a computer plugged into the TV without a mouse and keyboard on the
 No accounts, no cloud: the phone finds the computer with Bonjour, pairs once with a 6-digit
 code or QR, and talks to it over one encrypted TCP connection on your network.
 
-**Status (October 2026)**
+**Status (November 2026)**
 - **iPhone:** public **TestFlight beta** — https://testflight.apple.com/join/kY67K51G — ahead
   of a free App Store release. Supports iPhone Duo, folded or unfolded, in both orientations.
 - **Mac:** **1.1 released**, signed and notarized —
   [download](https://github.com/sebastianvidal/couchpad/releases/latest). 1.1 brings encrypted
-  sessions and hardened pairing; it needs the current iPhone build.
+  sessions and hardened pairing; it needs the current iPhone build. 1.2 (the screen stream
+  over UDP, below) is in `main` and ships with the next TestFlight build.
 - **Windows:** compiles, not yet run on a real Windows machine (see the appendix).
-- **New, in development:** the Mac's screen on the phone. Turn it on with the display icon
-  next to the gear; the picture fills the trackpad, which keeps working as a trackpad (or, as
-  an option, the pointer jumps to where you touch). Hardware
-  HEVC over the same encrypted connection, about 30 frames a second on good Wi-Fi. Needs
-  Screen Recording access for Couchpad on the Mac (it asks the first time). Mac only so far.
+- **New:** the Mac's screen on the phone. Turn it on with the display icon next to the gear;
+  the picture fills the trackpad, which keeps working as a trackpad (or, as an option, the
+  pointer jumps to where you touch), with the keys in a floating panel you can drag around, or
+  docked under the picture when the screen has room (unfolded iPhone Duo). Hardware HEVC at
+  up to 60 frames a second, sent as encrypted UDP datagrams with parity and retransmission so
+  a lost Wi-Fi packet costs a frame at most, never a stall; the host paces itself by the
+  phone's acknowledgements so lag can't build up. Half-open Duo: picture on the upright half,
+  trackpad and keys on the flat one. Needs Screen Recording access for Couchpad on the Mac (it
+  asks the first time). Fine for desktop use on a decent Wi-Fi; on a lossy mesh link it still
+  hiccups more than a game wants. Mac only so far.
 
 Site: https://sebastianvidal.github.io/couchpad/
 
@@ -194,9 +200,9 @@ whose first byte is 0x00 (a text line never starts with one) carries one HEVC or
 with its size, timestamp and, on keyframes, the codec's parameter sets (`ScreenPacket` in
 `SecureChannel.swift`). A host that can't stream answers with a text line `screen denied`
 (Screen Recording not allowed) or `screen error <why>`. The phone acknowledges every frame;
-when the unacknowledged backlog exceeds a few frames the host skips capturing until it clears,
-which costs no keyframe. Frames already encoded are dropped only as a last resort, followed by
-a keyframe to resync.
+when the oldest unacknowledged frame is more than 80 ms old the host skips capturing until
+it clears, which costs no keyframe. Frames already encoded are dropped only as a last resort,
+followed by a keyframe to resync.
 
 **Frames over UDP.** TCP waits for every lost packet, so one lost packet on Wi-Fi freezes the
 picture until the retransmit lands. Once paired, the phone also opens a UDP flow to the host's
@@ -210,9 +216,14 @@ which session they belong to, use the sequence number as the nonce, and are only
 the address the TCP session came from; receivers keep a 64-wide replay window. The phone
 acknowledges over UDP too, reports frames it had to give up on (`v l`), on which the host
 sends a keyframe, adds parity and lowers the bitrate for a while, and asks for TCP again
-(`v t`) if datagrams stop for two seconds (the host pings while the screen is still). Where UDP
-is blocked, nothing changes: frames simply stay on TCP. The exact layout is documented at the
-bottom of `Shared/SecureChannel.swift`. Windows ignores all of this for now.
+(`v t`) if datagrams stop for two seconds (the host pings while the screen is still). Before
+giving a frame up, the phone asks for its missing chunks by number (a `nack` datagram) and
+holds the frames behind it for up to 100 ms; the host re-sends them from a short history,
+re-sealed with fresh sequence numbers, ahead of new frames. The host also paces datagrams at
+a few times the bitrate rather than firing a frame as one burst, which Wi-Fi tends to drop
+whole. Where UDP is blocked, nothing changes: frames simply stay on TCP. The exact layout is
+documented at the bottom of `Shared/SecureChannel.swift`. Windows ignores all of this for
+now.
 
 ## Appendix C: Releasing
 

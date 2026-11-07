@@ -20,6 +20,7 @@ final class VideoLink {
     private let assembler = FrameAssembler()
     private let queue = DispatchQueue(label: "couchpad.video")
     private var timer: DispatchSourceTimer?
+    private var ticks = 0
     private var wanted = false
     private var lastFrameAt: Date?
     private var stalled = false
@@ -37,7 +38,7 @@ final class VideoLink {
         connection.start(queue: queue)
         receive()
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + 0.2, repeating: 1.0)
+        timer.schedule(deadline: .now() + 0.2, repeating: .milliseconds(10), leeway: .milliseconds(2))
         timer.setEventHandler { [weak self] in self?.tick() }
         timer.resume()
         self.timer = timer
@@ -53,6 +54,7 @@ final class VideoLink {
         queue.async {
             self.wanted = wanted
             if wanted { self.sendHello() } else { self.assembler.reset(); self.isLive = false; self.lastFrameAt = nil }
+            self.ticks = 0
         }
     }
 
@@ -61,17 +63,20 @@ final class VideoLink {
     }
 
     private func tick() {
-        if wanted { sendHello() }
-        if assembler.expire() { reportLoss() }
+        ticks += 1
+        if wanted, ticks % 100 == 0 { sendHello() }
+        deliver(assembler.tick())
         if let last = lastFrameAt, Date().timeIntervalSince(last) > 2 {
             isLive = false
             if !stalled { stalled = true; onStall?() }
         }
     }
 
-    private func reportLoss() {
+    private func deliver(_ delivery: FrameAssembler.Delivery) {
+        for nack in delivery.nacks { send(VideoDatagram.nack(sequence: nack.sequence, missing: nack.missing)) }
         let loss = assembler.takeLoss()
-        onLoss?(loss.frames, loss.chunks)
+        if loss.frames > 0 { onLoss?(loss.frames, loss.chunks) }
+        for frame in delivery.frames { onFrame?(frame) }
     }
 
     private func sendHello() {
@@ -92,10 +97,7 @@ final class VideoLink {
                 self.lastFrameAt = Date()
                 self.isLive = true
                 self.stalled = false
-                if first == VideoDatagram.MessageType.chunk.rawValue, let (frame, lostBefore) = self.assembler.add(plain) {
-                    if lostBefore { self.reportLoss() }
-                    self.onFrame?(frame)
-                }
+                if first == VideoDatagram.MessageType.chunk.rawValue { self.deliver(self.assembler.add(plain)) }
             }
             if error == nil { self.receive() }
         }

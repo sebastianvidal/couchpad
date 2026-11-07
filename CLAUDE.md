@@ -101,8 +101,15 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   standalone check: compile `Shared/SecureChannel.swift` with a `main.swift` that round-trips
   `VideoDatagram.chunks` through `DatagramCipher` and `FrameAssembler` with chunks removed.
   A still screen sends pings every 0.5 s so the phone doesn't fall back to TCP (`v t`).
-  Each `v l` cuts the encoder bitrate 30% (floor 25%) and shrinks the parity group; both
-  recover after 5–10 quiet seconds. `rate` in the stats line is the current share.
+  Missing chunks are nacked by index and re-sent from an 8-frame history (`resent` in the
+  stats line); frames behind wait up to 100 ms. Only frames given up on count as `lost`:
+  every `v l` shrinks the parity group (to 1/3 at worst); three lost frames within 2 s cut
+  the encoder bitrate 25% (floor 25%). Both recover over quiet seconds; `rate` in the stats
+  line is the current share. Datagrams are paced at 3× the bitrate (min 1 MB/s): fired as
+  one burst, a keyframe's 50 datagrams were lost whole on the user's Wi-Fi, every time.
+  The user's Duo on the Google Wifi mesh loses bursts of 6+ packets a few times a minute at
+  any rate; ICMP sees 1% random loss. Parity groups are interleaved (chunk i in group i mod
+  G) so a burst spreads across groups.
 - Windows ignores `v`/`M`; the phone hides the toggle for Windows hosts.
 
 ## Commits
