@@ -36,6 +36,18 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     private var lastBuffer: CVPixelBuffer?
     private var startedAt = CFAbsoluteTimeGetCurrent()
     private var running = false
+    /// Smoothed timings, for the stats log: how old a frame is when ScreenCaptureKit delivers
+    /// it, how long the encoder takes, and how many frames the capture skipped.
+    private(set) var captureAge = 0.0
+    private(set) var encodeTime = 0.0
+    private(set) var skipped = 0
+    private var encodeStarts: [Int64: CFAbsoluteTime] = [:]
+    /// The stats line, resetting the skip counter so it reads as "since the last line".
+    func takeStats() -> String {
+        let line = String(format: "capture age %.0f ms, encode %.0f ms, skipped %d", captureAge * 1000, encodeTime * 1000, skipped)
+        skipped = 0
+        return line
+    }
 
     static var hasPermission: Bool { CGPreflightScreenCaptureAccess() }
 
@@ -175,9 +187,11 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
             return
         }
         lastBuffer = buffer
+        let age = CACurrentMediaTime() - CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+        captureAge = captureAge * 0.9 + age * 0.1
         // Behind? Skip this frame rather than queue it; the next one encodes against the
         // last frame the phone actually got.
-        if !forceKeyframe, isCongested?() == true { return }
+        if !forceKeyframe, isCongested?() == true { skipped += 1; return }
         encode(buffer, now: CFAbsoluteTimeGetCurrent())
     }
 
@@ -197,9 +211,14 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
             forceKeyframe = false
         }
         let hevc = self.hevc
+        encodeStarts[pts.value] = now
+        if encodeStarts.count > 64 { encodeStarts.removeAll() }
         VTCompressionSessionEncodeFrame(encoder, imageBuffer: buffer, presentationTimeStamp: pts, duration: .invalid,
                                         frameProperties: props as CFDictionary, infoFlagsOut: nil) { [weak self] status, _, sample in
             guard status == noErr, let sample, let self else { return }
+            if let start = self.encodeStarts.removeValue(forKey: CMSampleBufferGetPresentationTimeStamp(sample).value) {
+                self.encodeTime = self.encodeTime * 0.9 + (CFAbsoluteTimeGetCurrent() - start) * 0.1
+            }
             self.emit(sample, hevc: hevc)
         }
     }

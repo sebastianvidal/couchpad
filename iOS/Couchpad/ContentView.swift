@@ -133,7 +133,9 @@ struct ContentView: View {
         guard client.isConnected else { screen.reset(); return }
         if screenOn, trackpadPixels.width > 0 {
             let share = [0.5, 2.0 / 3.0, 1.0][max(0, min(2, settings.screenQuality))]
-            client.send("v 1 \(Int(trackpadPixels.width * share)) \(Int(trackpadPixels.height * share)) 30")
+            // 60 fps: a change waits half as long for the next capture, and the phone's
+            // display shows it on the next refresh. Bandwidth roughly doubles; still a few Mbps.
+            client.send("v 1 \(Int(trackpadPixels.width * share)) \(Int(trackpadPixels.height * share)) 60")
         } else {
             client.send("v 0")
             screen.reset()

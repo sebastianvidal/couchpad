@@ -24,6 +24,8 @@ final class Server {
         var unacked: [(pts: UInt64, bytes: Int, sentAt: CFAbsoluteTime)] = []
         var acks = false
         var ackDelay = 0.0
+        /// Worst ack delay since the last stats line: stalls are short and the average hides them.
+        var maxAckDelay = 0.0
         init(_ connection: NWConnection) { self.connection = connection }
     }
 
@@ -40,9 +42,9 @@ final class Server {
     /// Bytes allowed in flight per phone before frames are dropped instead of queued: queuing
     /// turns a Wi-Fi hiccup into seconds of lag, dropping turns it into a brief freeze.
     private let inflightCap = 600 * 1024
-    /// Backlog (bytes sent, not yet acknowledged by the phone) above which the capture skips
-    /// frames: a couple of frames' worth, so a Wi-Fi hiccup costs frames, not lag.
-    private var backlogCap: Int { max(64 * 1024, ScreenStreamer.shared.bytesPerFrame * 3) }
+    /// How long a sent frame may go unacknowledged before the capture skips frames: a Wi-Fi
+    /// hiccup then costs frames, not lag. Healthy acks come back in 10–20 ms.
+    private let maxUnackedAge = 0.08
 
     init(port: UInt16, onChange: @escaping () -> Void) throws {
         self.port = port
@@ -53,11 +55,14 @@ final class Server {
         ScreenStreamer.shared.isCongested = { [weak self] in
             // Called on the encoder's queue; a stale read is harmless here.
             guard let self else { return false }
-            let cap = self.backlogCap
+            let now = CFAbsoluteTimeGetCurrent()
             return self.sessions.values.contains { session in
                 guard session.wantsScreen, session.authenticated else { return false }
-                let backlog = session.acks ? session.unacked.reduce(0) { $0 + $1.bytes } : session.inflight
-                return backlog > cap
+                guard session.acks else { return session.inflight > self.inflightCap }
+                // Congested means the phone is *late*, not that a big frame is in the air:
+                // skip only once the oldest unacknowledged frame has been out too long.
+                guard let oldest = session.unacked.first else { return false }
+                return now - oldest.sentAt > self.maxUnackedAge || session.unacked.reduce(0) { $0 + $1.bytes } > 1_000_000
             }
         }
         ScreenStreamer.shared.onStatus = { [weak self] status in
@@ -239,7 +244,11 @@ final class Server {
             let now = CFAbsoluteTimeGetCurrent()
             while let first = session.unacked.first, first.pts <= pts {
                 session.unacked.removeFirst()
-                if first.pts == pts { session.ackDelay = session.ackDelay * 0.9 + (now - first.sentAt) * 0.1 }
+                if first.pts == pts {
+                    let delay = now - first.sentAt
+                    session.ackDelay = session.ackDelay * 0.9 + delay * 0.1
+                    session.maxAckDelay = max(session.maxAckDelay, delay)
+                }
             }
             logScreenStats(session, now: now)
         default:
@@ -253,7 +262,9 @@ final class Server {
         guard now - lastStatsAt > 5 else { return }
         lastStatsAt = now
         let backlog = session.unacked.reduce(0) { $0 + $1.bytes }
-        NSLog("Screen: ack delay %.0f ms, backlog %d KB in %d frames", session.ackDelay * 1000, backlog / 1024, session.unacked.count)
+        NSLog("Screen %@: ack delay %.0f ms (max %.0f), backlog %d KB in %d frames; %@", String(describing: session.connection.endpoint),
+              session.ackDelay * 1000, session.maxAckDelay * 1000, backlog / 1024, session.unacked.count, ScreenStreamer.shared.takeStats())
+        session.maxAckDelay = 0
     }
 
     private func stopScreenIfUnwanted() {
