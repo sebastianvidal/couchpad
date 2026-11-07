@@ -246,15 +246,23 @@ enum ScreenPacket {
 ///                                11: data chunks N (2), 13: index (2), 15: group size (1), 16..: bytes
 ///                                index < N is data chunk `index`; index ≥ N is the parity for
 ///                                group index − N: the XOR of its data chunks, each padded to
-///                                the parity's length. The frame is a ScreenPacket.
+///                                the parity's length. With G = ⌈N / group size⌉ groups, data
+///                                chunk i belongs to group i mod G, so a run of up to G lost
+///                                packets still costs each group only one chunk. The frame is
+///                                a ScreenPacket.
 ///   0x03  ack   (phone → host)   presentation time (8), same meaning as `v a <pts>`
 ///   0x04  ping  (host → phone)   nothing; sent while the screen is still so the phone knows
 ///                                the path is alive (it falls back to TCP after two silent seconds)
+///   0x05  nack  (phone → host)   frame sequence (4), count (2), then that many data chunk
+///                                indices (2 each): send these again (count 0: the whole frame).
+///                                The host re-seals them with fresh sequence numbers from a
+///                                short history; a frame older than that is simply gone.
 /// The phone starts sending hellos when it asks for the picture; the host sends frames over
 /// TCP until a hello arrives and over UDP after. `v t` from the phone (no datagram for a
-/// while) switches back to TCP; `v l <frames> <chunks>` reports frames given up on and how
-/// many of their chunks never arrived (the host answers with a keyframe, adds parity and
-/// lowers the bitrate for a while).
+/// while) switches back to TCP. Missing chunks are first asked for again (nack) while the
+/// frames behind wait, up to 100 ms; `v l <frames> <chunks>` then reports frames given up on
+/// and how many of their chunks never arrived (the host answers with a keyframe, adds parity
+/// and lowers the bitrate for a while).
 enum VideoDatagram {
     static let videoInfo = Data("couchpad v2 video".utf8)
     static let idInfo = Data("couchpad v2 video id".utf8)
@@ -270,7 +278,7 @@ enum VideoDatagram {
     /// The host shrinks the group while the phone reports losses (more parity, fewer gaps).
     static let groupSize = 5
 
-    enum MessageType: UInt8 { case hello = 1, chunk = 2, ack = 3, ping = 4 }
+    enum MessageType: UInt8 { case hello = 1, chunk = 2, ack = 3, ping = 4, nack = 5 }
 
     static func key(from sessionKey: SymmetricKey) -> SymmetricKey {
         HKDF<SHA256>.deriveKey(inputKeyMaterial: sessionKey, info: videoInfo, outputByteCount: 32)
@@ -287,6 +295,15 @@ enum VideoDatagram {
 
     static let hello = Data([MessageType.hello.rawValue])
     static let ping = Data([MessageType.ping.rawValue])
+
+    /// Asks for chunks of a frame again: `missing` data chunk indices, or everything if empty.
+    static func nack(sequence: UInt32, missing: [Int]) -> Data {
+        var out = Data([MessageType.nack.rawValue])
+        appendUInt(&out, UInt64(sequence), bytes: 4)
+        appendUInt(&out, UInt64(missing.count), bytes: 2)
+        for i in missing { appendUInt(&out, UInt64(i), bytes: 2) }
+        return out
+    }
 
     static func ack(_ pts: UInt64) -> Data {
         var out = Data([MessageType.ack.rawValue])
@@ -316,8 +333,8 @@ enum VideoDatagram {
             out.append(header(index: i) + frame[start..<min(start + chunkBytes, frame.endIndex)])
         }
         for g in 0..<groups {
-            let members = (g * groupSize)..<min((g + 1) * groupSize, count)
-            var parity = [UInt8](repeating: 0, count: min(chunkBytes, frame.count - members.lowerBound * chunkBytes))
+            let members = stride(from: g, to: count, by: groups)
+            var parity = [UInt8](repeating: 0, count: min(chunkBytes, frame.count - g * chunkBytes))
             for i in members {
                 let chunk = out[i].dropFirst(chunkHeader)
                 for (k, byte) in chunk.enumerated() { parity[k] ^= byte }
@@ -409,8 +426,17 @@ final class DatagramCipher {
 }
 
 /// Puts frames back together from chunk plaintexts, repairing one lost chunk per group from
-/// its parity, and notices frames that will never complete.
+/// its parity, asking the host again for what is still missing (a NACK), holding later
+/// frames meanwhile so they are delivered in order, and giving up on a frame that stays
+/// incomplete too long.
 final class FrameAssembler {
+    struct Delivery {
+        var frames: [Data] = []
+        /// Chunks to ask for again: a frame sequence and the data chunk indices missing
+        /// (empty = the whole frame, nothing of it arrived).
+        var nacks: [(sequence: UInt32, missing: [Int])] = []
+    }
+
     private struct Pending {
         var bytes: Int
         var chunkBytes: Int
@@ -418,13 +444,19 @@ final class FrameAssembler {
         var group: Int
         var data: [Int: Data] = [:]
         var parity: [Int: Data] = [:]
-        var startedAt: Date
+        var complete: Data?
+        var firstAt: Date
+        var lastChunkAt: Date
+        var lastNackAt: Date?
     }
 
     private var pending: [UInt32: Pending] = [:]
-    private var lastDelivered: UInt32?
-    /// How long a frame may stay incomplete before it counts as lost.
-    var timeout: TimeInterval = 0.25
+    private var nextExpected: UInt32?
+    private var gapNackAt: Date?
+    /// How long a frame may stay incomplete after its first chunk before it counts as lost.
+    var timeout: TimeInterval = 0.1
+    /// How soon after the last chunk, and how often, to ask again for missing chunks.
+    var nackDelay: TimeInterval = 0.015
 
     /// Frames given up on and the chunks of theirs that never came, since the last `takeLoss`.
     private(set) var lostFrames = 0
@@ -434,53 +466,96 @@ final class FrameAssembler {
         return (lostFrames, lostChunks)
     }
 
-    /// Feeds one chunk plaintext (first byte 0x02). Returns a completed frame, if this chunk
-    /// finished one, and whether frames before it were given up on (see `takeLoss`).
-    func add(_ chunk: Data) -> (frame: Data, lostBefore: Bool)? {
-        guard chunk.count >= VideoDatagram.chunkHeader else { return nil }
+    func reset() {
+        pending.removeAll()
+        nextExpected = nil
+        gapNackAt = nil
+    }
+
+    /// Feeds one chunk plaintext (first byte 0x02).
+    func add(_ chunk: Data) -> Delivery {
+        var out = Delivery()
+        guard chunk.count >= VideoDatagram.chunkHeader else { return out }
         let sequence = UInt32(VideoDatagram.readUInt(chunk, 1, bytes: 4))
         let bytes = Int(VideoDatagram.readUInt(chunk, 5, bytes: 4))
         let chunkBytes = Int(VideoDatagram.readUInt(chunk, 9, bytes: 2))
         let count = Int(VideoDatagram.readUInt(chunk, 11, bytes: 2))
         let index = Int(VideoDatagram.readUInt(chunk, 13, bytes: 2))
         let group = Int(chunk[chunk.startIndex + 15])
-        guard count > 0, chunkBytes > 0, group > 0, bytes <= SecureChannel.maxFrame, index < count + (count + group - 1) / group else { return nil }
-        if let last = lastDelivered, sequence <= last { return nil }   // a straggler from a frame already shown
-        var p = pending[sequence] ?? Pending(bytes: bytes, chunkBytes: chunkBytes, count: count, group: group, startedAt: Date())
+        guard count > 0, chunkBytes > 0, group > 0, bytes <= SecureChannel.maxFrame, index < count + (count + group - 1) / group else { return out }
+        if let next = nextExpected, sequence < next { return out }   // a straggler from a frame already shown or given up
+        let now = Date()
+        var p = pending[sequence] ?? Pending(bytes: bytes, chunkBytes: chunkBytes, count: count, group: group, firstAt: now, lastChunkAt: now)
+        p.lastChunkAt = now
         let payload = chunk.dropFirst(VideoDatagram.chunkHeader)
         if index < count { p.data[index] = Data(payload) } else { p.parity[index - count] = Data(payload) }
-        guard let frame = assemble(p) else {
-            pending[sequence] = p
-            if pending.count > 16 { pending = pending.filter { $0.key + 16 > sequence } }
-            return nil
+        if p.complete == nil { p.complete = assemble(p) }
+        pending[sequence] = p
+        // The host has moved on to this frame: whatever older frames still lack is lost in
+        // the air, not merely late. Ask for it now rather than waiting.
+        for (older, q) in pending where older < sequence && q.complete == nil { nackIfDue(older, q, now: now, into: &out) }
+        if pending.count > 32 { pending = pending.filter { $0.key + 32 > sequence } }
+        flush(now: now, into: &out)
+        return out
+    }
+
+    /// Call every 10 ms or so: asks again for what is still missing and gives up on frames
+    /// that have waited too long, so the ones behind them can be shown.
+    func tick() -> Delivery {
+        var out = Delivery()
+        let now = Date()
+        for (sequence, p) in pending where p.complete == nil && now.timeIntervalSince(p.lastChunkAt) > nackDelay {
+            nackIfDue(sequence, p, now: now, into: &out)
         }
-        pending[sequence] = nil
-        let lost = lastDelivered.map { sequence != $0 + 1 } ?? false
-        if lost, let last = lastDelivered { giveUp(on: pending.filter { $0.key < sequence }, frames: Int(sequence - last) - 1) }
-        lastDelivered = sequence
-        pending = pending.filter { $0.key > sequence }
-        return (frame, lost)
+        flush(now: now, into: &out)
+        return out
     }
 
-    /// Frames that have waited too long are lost; returns true if any were.
-    func expire() -> Bool {
-        let cutoff = Date().addingTimeInterval(-timeout)
-        let stale = pending.filter { $0.value.startedAt < cutoff }
-        guard !stale.isEmpty else { return false }
-        giveUp(on: stale, frames: stale.count)
-        for key in stale.keys { pending[key] = nil }
-        if let newest = stale.keys.max() { lastDelivered = max(lastDelivered ?? 0, newest) }
-        return true
+    private func nackIfDue(_ sequence: UInt32, _ p: Pending, now: Date, into out: inout Delivery) {
+        if let last = p.lastNackAt, now.timeIntervalSince(last) < nackDelay { return }
+        pending[sequence]?.lastNackAt = now
+        out.nacks.append((sequence, (0..<p.count).filter { p.data[$0] == nil }))
     }
 
-    private func giveUp(on frames: [UInt32: Pending], frames count: Int) {
-        lostFrames += count
-        lostChunks += frames.values.reduce(0) { $0 + $1.count - $1.data.count }
-    }
-
-    func reset() {
-        pending.removeAll()
-        lastDelivered = nil
+    /// Delivers complete frames in order; gives up on the ones in front that are out of time.
+    private func flush(now: Date, into out: inout Delivery) {
+        while true {
+            if nextExpected == nil {
+                // Starting up: the first complete frame sets the sequence.
+                guard let first = pending.filter({ $0.value.complete != nil }).keys.min() else { return }
+                pending = pending.filter { $0.key >= first }
+                nextExpected = first
+            }
+            guard let next = nextExpected else { return }
+            if let p = pending[next] {
+                if let frame = p.complete {
+                    out.frames.append(frame)
+                    pending[next] = nil
+                    nextExpected = next + 1
+                    continue
+                }
+                guard now.timeIntervalSince(p.firstAt) > timeout else { return }
+                lostFrames += 1
+                lostChunks += p.count - p.data.count
+                pending[next] = nil
+                nextExpected = next + 1
+                continue
+            }
+            // Nothing of this frame arrived. If later frames are here, ask for it whole, and
+            // give it up once the frame after it has waited the full timeout.
+            guard let later = pending.keys.filter({ $0 > next }).min(), let q = pending[later] else { return }
+            if now.timeIntervalSince(q.firstAt) > timeout {
+                lostFrames += Int(later - next)
+                nextExpected = later
+                gapNackAt = nil
+                continue
+            }
+            if gapNackAt == nil || now.timeIntervalSince(gapNackAt!) >= nackDelay {
+                gapNackAt = now
+                for missing in next..<later { out.nacks.append((missing, [])) }
+            }
+            return
+        }
     }
 
     private func assemble(_ p: Pending) -> Data? {
@@ -488,7 +563,7 @@ final class FrameAssembler {
         if slices.contains(where: { $0 == nil }) {
             let groups = (p.count + p.group - 1) / p.group
             for g in 0..<groups {
-                let members = (g * p.group)..<min((g + 1) * p.group, p.count)
+                let members = stride(from: g, to: p.count, by: groups)
                 let missing = members.filter { slices[$0] == nil }
                 guard missing.count == 1, let parity = p.parity[g] else { continue }
                 var recovered = [UInt8](parity)

@@ -21,6 +21,10 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     var isCongested: (() -> Bool)?
     /// Average encoded bytes per frame at the current settings, for sizing the backlog cap.
     private(set) var bytesPerFrame = 40_000
+    /// How fast datagrams may leave: three times the bitrate, at least 1 MB/s, so a keyframe
+    /// of a few hundred KB still clears in well under a frame interval's worth of lag.
+    var paceBytesPerSecond: Double { max(1_000_000, Double(bytesPerFrame * fps) * 3) }
+    private var lastKeyframeBytes = 0
 
     /// Bounds (in points, global display space) of the display being streamed, for mapping
     /// the phone's absolute pointer. Set once the stream starts; the main display before that.
@@ -47,10 +51,12 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     private var baseBitrate = 0
     private var rateShare = 1.0
     private var lastLossAt = 0.0
+    private var recentLosses = 0
+    private var lastCutAt = 0.0
     private var lastRaiseAt = 0.0
     /// The stats line, resetting the skip counter so it reads as "since the last line".
     func takeStats() -> String {
-        let line = String(format: "capture age %.0f ms, encode %.0f ms, skipped %d, rate %.0f%%", captureAge * 1000, encodeTime * 1000, skipped, rateShare * 100)
+        let line = String(format: "capture age %.0f ms, encode %.0f ms, skipped %d, rate %.0f%%, keyframe %d KB", captureAge * 1000, encodeTime * 1000, skipped, rateShare * 100, lastKeyframeBytes / 1024)
         skipped = 0
         return line
     }
@@ -66,13 +72,18 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         queue.async { self.stopOnQueue() }
     }
 
-    /// The phone lost a frame on the way: smaller frames are less likely to lose a packet.
-    func noteLoss() {
+    /// The phone lost frames on the way. A run of losses means the link can't carry the
+    /// rate; a stray one is just Wi-Fi, and cutting for it only makes the picture blurry.
+    func noteLoss(frames: Int) {
         queue.async {
             let now = CFAbsoluteTimeGetCurrent()
-            guard now - self.lastLossAt > 0.5 else { return }   // one burst, one cut
+            if now - self.lastLossAt > 2 { self.recentLosses = 0 }
             self.lastLossAt = now
-            self.rateShare = max(0.25, self.rateShare * 0.7)
+            self.recentLosses += frames
+            guard self.recentLosses >= 3, now - self.lastCutAt > 1 else { return }
+            self.lastCutAt = now
+            self.recentLosses = 0
+            self.rateShare = max(0.25, self.rateShare * 0.75)
             self.applyBitrate()
         }
     }
@@ -225,9 +236,9 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         // last frame the phone actually got.
         if !forceKeyframe, isCongested?() == true { skipped += 1; return }
         let now = CFAbsoluteTimeGetCurrent()
-        if rateShare < 1, now - lastLossAt > 5, now - lastRaiseAt > 5 {
+        if rateShare < 1, now - lastLossAt > 3, now - lastRaiseAt > 3 {
             lastRaiseAt = now
-            rateShare = min(1, rateShare * 1.25)
+            rateShare = min(1, rateShare * 1.2)
             applyBitrate()
         }
         encode(buffer, now: now)
@@ -294,6 +305,7 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         }
         let dims = CMVideoFormatDescriptionGetDimensions(format)
         let pts = CMSampleBufferGetPresentationTimeStamp(sample)
+        if keyframe { lastKeyframeBytes = length }
         let frame = ScreenPacket.Frame(keyframe: keyframe, hevc: hevc, width: Int(dims.width), height: Int(dims.height),
                                        presentationMicros: UInt64(max(0, pts.seconds) * 1_000_000), parameterSets: sets, nalData: nal)
         onFrame?(frame)
