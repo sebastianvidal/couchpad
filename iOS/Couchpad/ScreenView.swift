@@ -24,6 +24,12 @@ final class ScreenReceiver: ObservableObject {
         layer.backgroundColor = UIColor.clear.cgColor
     }
 
+    /// A frame went missing on the way: keep the last picture, decode nothing until a
+    /// keyframe arrives (the host has been told to send one).
+    func markLost() {
+        waitingForKeyframe = true
+    }
+
     /// Throws away the decoder state: the next picture must start with a keyframe.
     func reset() {
         layer.flush()
@@ -36,7 +42,7 @@ final class ScreenReceiver: ObservableObject {
         guard let frame = ScreenPacket.decode(packet) else { return }
         // Tell the host this frame arrived; it paces the capture by what we have acknowledged,
         // so lag never builds up in the network. Acked even if we can't show it.
-        client?.send("v a \(frame.presentationMicros)")
+        client?.ackFrame(frame.presentationMicros)
         if frame.keyframe, !frame.parameterSets.isEmpty {
             if format == nil || hevc != frame.hevc || Int(videoSize.width) != frame.width || Int(videoSize.height) != frame.height {
                 layer.flush()
@@ -50,17 +56,26 @@ final class ScreenReceiver: ObservableObject {
             hostMessage = nil
         }
         guard !waitingForKeyframe, let format else {
-            client?.send("v k")
+            requestKeyframe()
             return
         }
         if layer.status == .failed || layer.requiresFlushToResumeDecoding {
             layer.flush()
             waitingForKeyframe = true
-            client?.send("v k")
+            requestKeyframe()
             return
         }
         guard let sample = makeSample(frame, format: format) else { return }
         layer.enqueue(sample)
+    }
+
+    private var lastKeyframeRequest = Date.distantPast
+    /// At most a few times a second: every frame that arrives while we wait would otherwise
+    /// ask again, and each request costs the host a full keyframe.
+    private func requestKeyframe() {
+        guard Date().timeIntervalSince(lastKeyframeRequest) > 0.2 else { return }
+        lastKeyframeRequest = Date()
+        client?.send("v k")
     }
 
     private func makeFormat(_ frame: ScreenPacket.Frame) -> CMVideoFormatDescription? {

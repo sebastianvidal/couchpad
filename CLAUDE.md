@@ -94,6 +94,15 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   stalling, not the pipeline: check retransmits with
   `nettop -p <mac pid> -l 1 -J bytes_out,re-tx,rtt_avg` (12% re-tx seen on the user's mesh)
   and ping the phone with `--apple-time` to catch the gaps. ICMP at low rates misses them.
+- Frames go over UDP (same port) once the phone's `hello` datagram reaches the host; the stats
+  line says `(udp)` or `(tcp)`, how many frames the phone gave up on (`lost`), how many chunks
+  were missing, and the current parity ratio. Layout and keys: bottom of
+  `Shared/SecureChannel.swift`; chunking, parity repair and the replay window have a quick
+  standalone check: compile `Shared/SecureChannel.swift` with a `main.swift` that round-trips
+  `VideoDatagram.chunks` through `DatagramCipher` and `FrameAssembler` with chunks removed.
+  A still screen sends pings every 0.5 s so the phone doesn't fall back to TCP (`v t`).
+  Each `v l` cuts the encoder bitrate 30% (floor 25%) and shrinks the parity group; both
+  recover after 5–10 quiet seconds. `rate` in the stats line is the current share.
 - Windows ignores `v`/`M`; the phone hides the toggle for Windows hosts.
 
 ## Commits

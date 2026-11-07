@@ -42,9 +42,15 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     private(set) var encodeTime = 0.0
     private(set) var skipped = 0
     private var encodeStarts: [Int64: CFAbsoluteTime] = [:]
+    /// Bitrate adaptation: the configured rate for the current size, and the share of it in
+    /// use. Every lost frame the phone reports cuts the share; quiet stretches restore it.
+    private var baseBitrate = 0
+    private var rateShare = 1.0
+    private var lastLossAt = 0.0
+    private var lastRaiseAt = 0.0
     /// The stats line, resetting the skip counter so it reads as "since the last line".
     func takeStats() -> String {
-        let line = String(format: "capture age %.0f ms, encode %.0f ms, skipped %d", captureAge * 1000, encodeTime * 1000, skipped)
+        let line = String(format: "capture age %.0f ms, encode %.0f ms, skipped %d, rate %.0f%%", captureAge * 1000, encodeTime * 1000, skipped, rateShare * 100)
         skipped = 0
         return line
     }
@@ -60,8 +66,33 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         queue.async { self.stopOnQueue() }
     }
 
+    /// The phone lost a frame on the way: smaller frames are less likely to lose a packet.
+    func noteLoss() {
+        queue.async {
+            let now = CFAbsoluteTimeGetCurrent()
+            guard now - self.lastLossAt > 0.5 else { return }   // one burst, one cut
+            self.lastLossAt = now
+            self.rateShare = max(0.25, self.rateShare * 0.7)
+            self.applyBitrate()
+        }
+    }
+
+    private func applyBitrate() {
+        guard let encoder, baseBitrate > 0 else { return }
+        let bitrate = Int(Double(baseBitrate) * rateShare)
+        bytesPerFrame = bitrate / 8 / fps
+        VTSessionSetProperty(encoder, key: kVTCompressionPropertyKey_AverageBitRate, value: bitrate as CFNumber)
+        VTSessionSetProperty(encoder, key: kVTCompressionPropertyKey_DataRateLimits, value: [bitrate / 8 * 3 / 2, 1] as CFArray)
+    }
+
+    private var lastKeyframeAt = 0.0
     func requestKeyframe() {
         queue.async {
+            // Several phones, or one phone losing several frames, ask within the same instant:
+            // one keyframe serves them all.
+            let now = CFAbsoluteTimeGetCurrent()
+            guard now - self.lastKeyframeAt > 0.1 else { return }
+            self.lastKeyframeAt = now
             self.forceKeyframe = true
             // A still screen produces no new frames; re-encode the last one so the phone
             // gets its keyframe now rather than at the next change.
@@ -158,7 +189,8 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         }
         guard status == noErr, let session else { throw NSError(domain: "Couchpad", code: Int(status), userInfo: [NSLocalizedDescriptionKey: "no video encoder"]) }
         let pixelsPerSecond = Double(size.width * size.height) * Double(fps)
-        let bitrate = Int(max(2_000_000, min(25_000_000, pixelsPerSecond * 0.12)))
+        baseBitrate = Int(max(2_000_000, min(25_000_000, pixelsPerSecond * 0.12)))
+        let bitrate = Int(Double(baseBitrate) * rateShare)
         bytesPerFrame = bitrate / 8 / fps
         let props: [CFString: Any] = [
             kVTCompressionPropertyKey_RealTime: true,
@@ -192,7 +224,13 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         // Behind? Skip this frame rather than queue it; the next one encodes against the
         // last frame the phone actually got.
         if !forceKeyframe, isCongested?() == true { skipped += 1; return }
-        encode(buffer, now: CFAbsoluteTimeGetCurrent())
+        let now = CFAbsoluteTimeGetCurrent()
+        if rateShare < 1, now - lastLossAt > 5, now - lastRaiseAt > 5 {
+            lastRaiseAt = now
+            rateShare = min(1, rateShare * 1.25)
+            applyBitrate()
+        }
+        encode(buffer, now: now)
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {

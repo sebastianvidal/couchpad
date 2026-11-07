@@ -41,6 +41,8 @@ final class Client: ObservableObject {
     var onScreenPacket: ((Data) -> Void)?
     /// Text status about the screen stream from the host ("denied", "error …").
     var onScreenStatus: ((String) -> Void)?
+    /// A frame was lost on the UDP path: the decoder must wait for the next keyframe.
+    var onScreenLoss: (() -> Void)?
 
     /// "Mac" or "PC", for UI text about the paired computer.
     var hostNoun: String { hostPlatform == .windows ? "PC" : "Mac" }
@@ -54,6 +56,10 @@ final class Client: ObservableObject {
     private var transcript = Data()
     private var sendCipher: FrameCipher?
     private var recvCipher: FrameCipher?
+    private var sessionKey: SymmetricKey?
+    /// Frames over UDP once paired (see VideoLink); nil while the host's address is unknown.
+    private var videoLink: VideoLink?
+    private var screenWanted = false
     private var sentCredential: Credential?
     private var pendingCode: String?
     private var retryTask: Task<Void, Never>?
@@ -85,6 +91,8 @@ final class Client: ObservableObject {
             connection.cancel()
             self.connection = nil
         }
+        videoLink?.cancel()
+        videoLink = nil
         phase = .disconnected
         status = "Paused"
     }
@@ -151,6 +159,8 @@ final class Client: ObservableObject {
     private func connect(endpoint: NWEndpoint, name: String) {
         retryTask?.cancel()
         connection?.cancel()
+        videoLink?.cancel()
+        videoLink = nil
         receiving = false
         buffer = FrameBuffer()
         privateKey = P256.KeyAgreement.PrivateKey()
@@ -234,6 +244,7 @@ final class Client: ObservableObject {
         transcript = SecureChannel.transcript(clientKey: privateKey.publicKey.rawRepresentation, hostKey: hostKey, nonce: nonce)
         sendCipher = FrameCipher(key: key, direction: 0)
         recvCipher = FrameCipher(key: key, direction: 1)
+        sessionKey = key
 
         if let code = pendingCode {
             pendingCode = nil
@@ -324,6 +335,7 @@ final class Client: ObservableObject {
             hostPlatform = parts[2] == "windows" ? .windows : .mac
             phase = .paired
             status = "Connected to \(macName)"
+            if hostPlatform == .mac { startVideoLink() }
         } else if line == "nope" {
             switch sentCredential {
             case .token:
@@ -380,7 +392,47 @@ final class Client: ObservableObject {
     /// Input commands; dropped until pairing has succeeded.
     func send(_ line: String) {
         guard isConnected, let connection, connection.state == .ready else { return }
+        if line.hasPrefix("v 1 ") { screenWanted = true; videoLink?.setWanted(true) }
+        if line == "v 0" { screenWanted = false; videoLink?.setWanted(false) }
         sendLine(line)
+    }
+
+    /// Tells the host a frame arrived, over UDP when that is what carries the picture.
+    func ackFrame(_ pts: UInt64) {
+        if let videoLink, videoLink.isLive { videoLink.ack(pts) } else { send("v a \(pts)") }
+    }
+
+    /// Opens the UDP sideband to the host's resolved address: the host starts sending frames
+    /// as datagrams once a hello reaches it. Without one (UDP blocked, address unknown) the
+    /// picture simply stays on TCP.
+    private func startVideoLink() {
+        videoLink?.cancel()
+        videoLink = nil
+        guard let connection, let key = sessionKey,
+              case .hostPort(let host, let port)? = connection.currentPath?.remoteEndpoint else { return }
+        let link = VideoLink(host: host, port: port, sessionKey: key)
+        link.onFrame = { [weak self] frame in
+            Task { @MainActor in
+                guard let self, self.isConnected, self.videoLink === link else { return }
+                self.onScreenPacket?(frame)
+            }
+        }
+        link.onLoss = { [weak self] frames, chunks in
+            Task { @MainActor in
+                guard let self, self.videoLink === link else { return }
+                self.onScreenLoss?()
+                self.send("v l \(frames) \(chunks)")
+            }
+        }
+        link.onStall = { [weak self] in
+            Task { @MainActor in
+                guard let self, self.videoLink === link, self.screenWanted else { return }
+                self.send("v t")
+            }
+        }
+        link.start()
+        if screenWanted { link.setWanted(true) }
+        videoLink = link
     }
 
     private func sendLine(_ line: String) {

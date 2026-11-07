@@ -183,6 +183,8 @@ r            release everything
 M fx fy      put the pointer at a point on the streamed display (fractions 0…1 of its size)
 v 1 w h fps  start streaming the screen, scaled to fit w×h pixels   ·   v 0 stop   ·   v k send a keyframe
 v a pts      the phone got the frame with that timestamp (the host paces capture by these)
+v l n c      the phone gave up on n frames over UDP, c of their chunks never arrived
+v t          the phone stopped getting UDP datagrams: send frames over TCP again
 ```
 
 The host releases every held key and button when a phone disconnects.
@@ -195,6 +197,22 @@ with its size, timestamp and, on keyframes, the codec's parameter sets (`ScreenP
 when the unacknowledged backlog exceeds a few frames the host skips capturing until it clears,
 which costs no keyframe. Frames already encoded are dropped only as a last resort, followed by
 a keyframe to resync.
+
+**Frames over UDP.** TCP waits for every lost packet, so one lost packet on Wi-Fi freezes the
+picture until the retransmit lands. Once paired, the phone also opens a UDP flow to the host's
+port and sends it a `hello`; from then on frames go out as datagrams of at most 1200 bytes,
+each frame split into chunks with one XOR parity chunk per group (5 data chunks per parity
+normally, down to 2 while the phone reports losses), so a single lost packet per group costs
+nothing and a worse loss costs one frame, never a stall. Datagrams are sealed with AES-256-GCM
+under a key derived from the session key (`HKDF(sessionKey, "couchpad v2 video")`), carry an
+8-byte stream id (`HKDF(sessionKey, "couchpad v2 video id")`) in the clear so the host knows
+which session they belong to, use the sequence number as the nonce, and are only accepted from
+the address the TCP session came from; receivers keep a 64-wide replay window. The phone
+acknowledges over UDP too, reports frames it had to give up on (`v l`), on which the host
+sends a keyframe, adds parity and lowers the bitrate for a while, and asks for TCP again
+(`v t`) if datagrams stop for two seconds (the host pings while the screen is still). Where UDP
+is blocked, nothing changes: frames simply stay on TCP. The exact layout is documented at the
+bottom of `Shared/SecureChannel.swift`. Windows ignores all of this for now.
 
 ## Appendix C: Releasing
 

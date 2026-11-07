@@ -67,6 +67,7 @@ struct ContentView: View {
             screen.client = client
             client.onScreenPacket = { [weak screen] packet in screen?.handle(packet) }
             client.onScreenStatus = { [weak screen] status in screen?.hostMessage = status }
+            client.onScreenLoss = { [weak screen] in screen?.markLost() }
             client.startBrowsing()
             UIApplication.shared.isIdleTimerDisabled = true
             if !hasSeenSetup {

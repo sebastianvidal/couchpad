@@ -221,3 +221,288 @@ enum ScreenPacket {
         UInt16(data[i]) << 8 | UInt16(data[i + 1])
     }
 }
+
+// MARK: - Video over UDP
+
+/// The picture can also travel as UDP datagrams, host → phone, on the same port as the TCP
+/// service. TCP waits for every lost packet, so one lost packet on Wi-Fi freezes the picture
+/// until the retransmit lands; over UDP a lost packet costs at most one frame, and usually
+/// nothing, because every group of chunks carries a parity chunk that rebuilds one loss.
+///
+/// Keys come from the TCP session (nothing is negotiated in the clear):
+///   videoKey = HKDF-SHA256(sessionKey, info: "couchpad v2 video", 32 bytes)
+///   streamID = HKDF-SHA256(sessionKey, info: "couchpad v2 video id", 8 bytes)
+/// Datagram layout, all integers big-endian:
+///   0..7    stream id            which TCP session this belongs to (in the clear)
+///   8..15   sequence             per direction, never reused under a key
+///   16..    AES-256-GCM ciphertext ‖ 16-byte tag
+///             nonce = direction ‖ 0 0 0 ‖ sequence   (direction 2 host→phone, 3 phone→host)
+///             additional authenticated data = bytes 0..15
+/// Receivers drop a sequence they have already seen (64-wide window), and the host only
+/// accepts datagrams from the address its TCP session came from.
+/// Plaintext, by first byte:
+///   0x01  hello (phone → host)   the phone's address for the stream; repeated every second
+///   0x02  chunk (host → phone)   1: frame sequence (4), 5: frame bytes (4), 9: chunk bytes (2),
+///                                11: data chunks N (2), 13: index (2), 15: group size (1), 16..: bytes
+///                                index < N is data chunk `index`; index ≥ N is the parity for
+///                                group index − N: the XOR of its data chunks, each padded to
+///                                the parity's length. The frame is a ScreenPacket.
+///   0x03  ack   (phone → host)   presentation time (8), same meaning as `v a <pts>`
+///   0x04  ping  (host → phone)   nothing; sent while the screen is still so the phone knows
+///                                the path is alive (it falls back to TCP after two silent seconds)
+/// The phone starts sending hellos when it asks for the picture; the host sends frames over
+/// TCP until a hello arrives and over UDP after. `v t` from the phone (no datagram for a
+/// while) switches back to TCP; `v l <frames> <chunks>` reports frames given up on and how
+/// many of their chunks never arrived (the host answers with a keyframe, adds parity and
+/// lowers the bitrate for a while).
+enum VideoDatagram {
+    static let videoInfo = Data("couchpad v2 video".utf8)
+    static let idInfo = Data("couchpad v2 video id".utf8)
+    static let hostDirection: UInt8 = 2
+    static let phoneDirection: UInt8 = 3
+    static let headerSize = 16
+    static let tagSize = 16
+    static let chunkHeader = 16
+    /// Fits in one Wi-Fi/Ethernet MTU with IPv6 and UDP headers to spare.
+    static let maxDatagram = 1200
+    static let chunkBytes = maxDatagram - headerSize - tagSize - chunkHeader
+    /// Data chunks per parity chunk by default: 20% overhead, one loss per group recovered.
+    /// The host shrinks the group while the phone reports losses (more parity, fewer gaps).
+    static let groupSize = 5
+
+    enum MessageType: UInt8 { case hello = 1, chunk = 2, ack = 3, ping = 4 }
+
+    static func key(from sessionKey: SymmetricKey) -> SymmetricKey {
+        HKDF<SHA256>.deriveKey(inputKeyMaterial: sessionKey, info: videoInfo, outputByteCount: 32)
+    }
+
+    static func streamID(from sessionKey: SymmetricKey) -> Data {
+        HKDF<SHA256>.deriveKey(inputKeyMaterial: sessionKey, info: idInfo, outputByteCount: 8).withUnsafeBytes { Data($0) }
+    }
+
+    /// The stream id of a datagram, before decrypting it: which session's key to try.
+    static func streamID(of datagram: Data) -> Data? {
+        datagram.count >= headerSize + tagSize ? datagram.prefix(8) : nil
+    }
+
+    static let hello = Data([MessageType.hello.rawValue])
+    static let ping = Data([MessageType.ping.rawValue])
+
+    static func ack(_ pts: UInt64) -> Data {
+        var out = Data([MessageType.ack.rawValue])
+        appendUInt(&out, pts, bytes: 8)
+        return out
+    }
+
+    /// Splits one frame into chunk plaintexts (data chunks, then parity chunks).
+    static func chunks(frame: Data, sequence: UInt32, groupSize: Int = groupSize) -> [Data] {
+        let groupSize = max(1, min(255, groupSize))
+        let count = max(1, (frame.count + chunkBytes - 1) / chunkBytes)
+        let groups = (count + groupSize - 1) / groupSize
+        var out: [Data] = []
+        out.reserveCapacity(count + groups)
+        func header(index: Int) -> Data {
+            var h = Data([MessageType.chunk.rawValue])
+            appendUInt(&h, UInt64(sequence), bytes: 4)
+            appendUInt(&h, UInt64(frame.count), bytes: 4)
+            appendUInt(&h, UInt64(chunkBytes), bytes: 2)
+            appendUInt(&h, UInt64(count), bytes: 2)
+            appendUInt(&h, UInt64(index), bytes: 2)
+            h.append(UInt8(groupSize))
+            return h
+        }
+        for i in 0..<count {
+            let start = frame.startIndex + i * chunkBytes
+            out.append(header(index: i) + frame[start..<min(start + chunkBytes, frame.endIndex)])
+        }
+        for g in 0..<groups {
+            let members = (g * groupSize)..<min((g + 1) * groupSize, count)
+            var parity = [UInt8](repeating: 0, count: min(chunkBytes, frame.count - members.lowerBound * chunkBytes))
+            for i in members {
+                let chunk = out[i].dropFirst(chunkHeader)
+                for (k, byte) in chunk.enumerated() { parity[k] ^= byte }
+            }
+            out.append(header(index: count + g) + Data(parity))
+        }
+        return out
+    }
+
+    static func appendUInt(_ data: inout Data, _ value: UInt64, bytes: Int) {
+        for shift in stride(from: (bytes - 1) * 8, through: 0, by: -8) { data.append(UInt8(truncatingIfNeeded: value >> UInt64(shift))) }
+    }
+
+    static func readUInt(_ data: Data, _ offset: Int, bytes: Int) -> UInt64 {
+        var v: UInt64 = 0
+        for i in 0..<bytes { v = (v << 8) | UInt64(data[data.startIndex + offset + i]) }
+        return v
+    }
+}
+
+/// Seals and opens video datagrams for one session. Not thread-safe: use from one queue.
+final class DatagramCipher {
+    let streamID: Data
+    private let key: SymmetricKey
+    private let sendDirection: UInt8
+    private let recvDirection: UInt8
+    private var counter: UInt64 = 0
+    /// Replay window: the highest sequence opened and a bitmask of the 64 below it.
+    private var highest: UInt64 = 0
+    private var seen: UInt64 = 0
+    private var opened = false
+
+    init(sessionKey: SymmetricKey, isHost: Bool) {
+        key = VideoDatagram.key(from: sessionKey)
+        streamID = VideoDatagram.streamID(from: sessionKey)
+        sendDirection = isHost ? VideoDatagram.hostDirection : VideoDatagram.phoneDirection
+        recvDirection = isHost ? VideoDatagram.phoneDirection : VideoDatagram.hostDirection
+    }
+
+    private func nonce(direction: UInt8, sequence: UInt64) -> AES.GCM.Nonce {
+        var bytes = Data([direction, 0, 0, 0])
+        VideoDatagram.appendUInt(&bytes, sequence, bytes: 8)
+        return try! AES.GCM.Nonce(data: bytes)
+    }
+
+    func seal(_ plain: Data) -> Data? {
+        var header = streamID
+        VideoDatagram.appendUInt(&header, counter, bytes: 8)
+        guard let box = try? AES.GCM.seal(plain, using: key, nonce: nonce(direction: sendDirection, sequence: counter), authenticating: header) else { return nil }
+        counter += 1
+        return header + box.ciphertext + box.tag
+    }
+
+    /// The plaintext of a datagram for this stream, or nil if it is for another stream, was
+    /// tampered with, or has been seen before.
+    func open(_ datagram: Data) -> Data? {
+        guard datagram.count >= VideoDatagram.headerSize + VideoDatagram.tagSize, datagram.prefix(8) == streamID else { return nil }
+        let sequence = VideoDatagram.readUInt(datagram, 8, bytes: 8)
+        guard isFresh(sequence) else { return nil }
+        let body = datagram.dropFirst(VideoDatagram.headerSize)
+        guard let box = try? AES.GCM.SealedBox(nonce: nonce(direction: recvDirection, sequence: sequence),
+                                               ciphertext: body.dropLast(VideoDatagram.tagSize), tag: body.suffix(VideoDatagram.tagSize)),
+              let plain = try? AES.GCM.open(box, using: key, authenticating: datagram.prefix(VideoDatagram.headerSize)) else { return nil }
+        mark(sequence)   // only after the tag checked out, so forgeries can't poison the window
+        return plain
+    }
+
+    private func isFresh(_ sequence: UInt64) -> Bool {
+        guard opened else { return true }
+        if sequence > highest { return true }
+        let back = highest - sequence
+        return back < 64 && seen & (1 << back) == 0
+    }
+
+    private func mark(_ sequence: UInt64) {
+        if !opened {
+            opened = true
+            highest = sequence
+            seen = 1
+        } else if sequence > highest {
+            let shift = sequence - highest
+            seen = shift >= 64 ? 0 : seen << shift
+            seen |= 1
+            highest = sequence
+        } else {
+            seen |= 1 << (highest - sequence)
+        }
+    }
+}
+
+/// Puts frames back together from chunk plaintexts, repairing one lost chunk per group from
+/// its parity, and notices frames that will never complete.
+final class FrameAssembler {
+    private struct Pending {
+        var bytes: Int
+        var chunkBytes: Int
+        var count: Int
+        var group: Int
+        var data: [Int: Data] = [:]
+        var parity: [Int: Data] = [:]
+        var startedAt: Date
+    }
+
+    private var pending: [UInt32: Pending] = [:]
+    private var lastDelivered: UInt32?
+    /// How long a frame may stay incomplete before it counts as lost.
+    var timeout: TimeInterval = 0.25
+
+    /// Frames given up on and the chunks of theirs that never came, since the last `takeLoss`.
+    private(set) var lostFrames = 0
+    private(set) var lostChunks = 0
+    func takeLoss() -> (frames: Int, chunks: Int) {
+        defer { lostFrames = 0; lostChunks = 0 }
+        return (lostFrames, lostChunks)
+    }
+
+    /// Feeds one chunk plaintext (first byte 0x02). Returns a completed frame, if this chunk
+    /// finished one, and whether frames before it were given up on (see `takeLoss`).
+    func add(_ chunk: Data) -> (frame: Data, lostBefore: Bool)? {
+        guard chunk.count >= VideoDatagram.chunkHeader else { return nil }
+        let sequence = UInt32(VideoDatagram.readUInt(chunk, 1, bytes: 4))
+        let bytes = Int(VideoDatagram.readUInt(chunk, 5, bytes: 4))
+        let chunkBytes = Int(VideoDatagram.readUInt(chunk, 9, bytes: 2))
+        let count = Int(VideoDatagram.readUInt(chunk, 11, bytes: 2))
+        let index = Int(VideoDatagram.readUInt(chunk, 13, bytes: 2))
+        let group = Int(chunk[chunk.startIndex + 15])
+        guard count > 0, chunkBytes > 0, group > 0, bytes <= SecureChannel.maxFrame, index < count + (count + group - 1) / group else { return nil }
+        if let last = lastDelivered, sequence <= last { return nil }   // a straggler from a frame already shown
+        var p = pending[sequence] ?? Pending(bytes: bytes, chunkBytes: chunkBytes, count: count, group: group, startedAt: Date())
+        let payload = chunk.dropFirst(VideoDatagram.chunkHeader)
+        if index < count { p.data[index] = Data(payload) } else { p.parity[index - count] = Data(payload) }
+        guard let frame = assemble(p) else {
+            pending[sequence] = p
+            if pending.count > 16 { pending = pending.filter { $0.key + 16 > sequence } }
+            return nil
+        }
+        pending[sequence] = nil
+        let lost = lastDelivered.map { sequence != $0 + 1 } ?? false
+        if lost, let last = lastDelivered { giveUp(on: pending.filter { $0.key < sequence }, frames: Int(sequence - last) - 1) }
+        lastDelivered = sequence
+        pending = pending.filter { $0.key > sequence }
+        return (frame, lost)
+    }
+
+    /// Frames that have waited too long are lost; returns true if any were.
+    func expire() -> Bool {
+        let cutoff = Date().addingTimeInterval(-timeout)
+        let stale = pending.filter { $0.value.startedAt < cutoff }
+        guard !stale.isEmpty else { return false }
+        giveUp(on: stale, frames: stale.count)
+        for key in stale.keys { pending[key] = nil }
+        if let newest = stale.keys.max() { lastDelivered = max(lastDelivered ?? 0, newest) }
+        return true
+    }
+
+    private func giveUp(on frames: [UInt32: Pending], frames count: Int) {
+        lostFrames += count
+        lostChunks += frames.values.reduce(0) { $0 + $1.count - $1.data.count }
+    }
+
+    func reset() {
+        pending.removeAll()
+        lastDelivered = nil
+    }
+
+    private func assemble(_ p: Pending) -> Data? {
+        var slices = (0..<p.count).map { p.data[$0] }
+        if slices.contains(where: { $0 == nil }) {
+            let groups = (p.count + p.group - 1) / p.group
+            for g in 0..<groups {
+                let members = (g * p.group)..<min((g + 1) * p.group, p.count)
+                let missing = members.filter { slices[$0] == nil }
+                guard missing.count == 1, let parity = p.parity[g] else { continue }
+                var recovered = [UInt8](parity)
+                for i in members where i != missing[0] {
+                    for (k, byte) in slices[i]!.enumerated() where k < recovered.count { recovered[k] ^= byte }
+                }
+                let length = missing[0] == p.count - 1 ? p.bytes - missing[0] * p.chunkBytes : p.chunkBytes
+                guard length >= 0, length <= recovered.count else { return nil }
+                slices[missing[0]] = Data(recovered.prefix(length))
+            }
+            if slices.contains(where: { $0 == nil }) { return nil }
+        }
+        var frame = Data(capacity: p.bytes)
+        for slice in slices { frame.append(slice!) }
+        return frame.count == p.bytes ? frame : nil
+    }
+}
