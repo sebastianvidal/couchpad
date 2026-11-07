@@ -12,6 +12,9 @@ final class AppSettings: ObservableObject {
     @Published var controllerInvertY: Bool { didSet { save("controllerInvertY", controllerInvertY) } }
     @Published var trackpadOnRight: Bool { didSet { save("trackpadOnRight", trackpadOnRight) } }
     @Published var showScreen: Bool { didSet { save("showScreen", showScreen) } }
+    /// With the picture on: touching it puts the pointer under the finger instead of the
+    /// trackpad's usual relative moves.
+    @Published var tapToPoint: Bool { didSet { save("tapToPoint", tapToPoint) } }
 
     init() {
         let d = UserDefaults.standard
@@ -25,6 +28,7 @@ final class AppSettings: ObservableObject {
         controllerInvertY = d.object(forKey: "controllerInvertY") as? Bool ?? false
         trackpadOnRight = d.object(forKey: "trackpadOnRight") as? Bool ?? false
         showScreen = d.object(forKey: "showScreen") as? Bool ?? false
+        tapToPoint = d.object(forKey: "tapToPoint") as? Bool ?? false
     }
 
     private func save(_ key: String, _ value: Any) {

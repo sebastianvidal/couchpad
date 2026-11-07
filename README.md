@@ -14,7 +14,8 @@ code or QR, and talks to it over one encrypted TCP connection on your network.
   sessions and hardened pairing; it needs the current iPhone build.
 - **Windows:** compiles, not yet run on a real Windows machine (see the appendix).
 - **New, in development:** the Mac's screen on the phone. Turn it on with the display icon
-  next to the gear; the picture fills the trackpad and tapping it clicks that spot. Hardware
+  next to the gear; the picture fills the trackpad, which keeps working as a trackpad (or, as
+  an option, the pointer jumps to where you touch). Hardware
   HEVC over the same encrypted connection, about 30 frames a second on good Wi-Fi. Needs
   Screen Recording access for Couchpad on the Mac (it asks the first time). Mac only so far.
 

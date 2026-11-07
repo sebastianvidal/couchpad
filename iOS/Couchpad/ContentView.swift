@@ -246,7 +246,7 @@ struct ContentView: View {
                 ScreenView(receiver: screen)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
-            TrackpadView(client: client, settings: settings, videoSize: screenOn ? screen.videoSize : .zero)
+            TrackpadView(client: client, settings: settings, videoSize: screenOn && settings.tapToPoint ? screen.videoSize : .zero)
                 .background(
                     GeometryReader { geo in
                         Color.clear.onChange(of: geo.size, initial: true) { _, size in
@@ -393,7 +393,10 @@ struct ContentView: View {
                 }
                 Section("Screen") {
                     Toggle("Show the Mac's screen on the trackpad", isOn: $settings.showScreen)
-                    Text("Tap what you see to click it. Needs Screen Recording access for Couchpad on the Mac; the Mac asks the first time. Mac only for now.")
+                    Text("The trackpad works as usual on top of the picture. Needs Screen Recording access for Couchpad on the Mac; the Mac asks the first time. Mac only for now.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Toggle("Touch the picture to point there", isOn: $settings.tapToPoint)
+                    Text("The pointer jumps to where your finger is, so a tap clicks what is under it. Off, a swipe moves the pointer and a tap clicks where it is.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Controller") {
