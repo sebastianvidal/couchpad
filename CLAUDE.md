@@ -86,9 +86,14 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   via `simctl spawn`, pair with `simctl openurl couchpad://pair?...` (an "Open in Couchpad?"
   prompt must be tapped in Device Hub), then watch `log show --predicate 'process == "Couchpad"'`
   for `FigVideoQueue … frames enqueued`. Testing the absolute pointer moves the user's cursor.
-- Latency: the phone acks each frame (`v a <pts>`); the host logs "Screen: ack delay … backlog …"
-  to stderr every 5 s while streaming. Healthy on good Wi-Fi is under ~40 ms and a backlog of
-  0–1 frames. Capture is skipped (not frames dropped) while the backlog exceeds ~3 frames.
+- Latency: the phone acks each frame (`v a <pts>`); the host logs a stats line to stderr every
+  5 s while streaming: ack delay (smoothed and worst in the window), backlog, capture age
+  (how stale ScreenCaptureKit's frame is), encode time, frames skipped. Healthy: ack ~10 ms,
+  capture age ~0, encode ~5 ms, skipped 0. Capture is skipped (never frames dropped) while
+  the oldest unacked frame is older than 80 ms. A high "max" with a tiny backlog is the Wi-Fi
+  stalling, not the pipeline: check retransmits with
+  `nettop -p <mac pid> -l 1 -J bytes_out,re-tx,rtt_avg` (12% re-tx seen on the user's mesh)
+  and ping the phone with `--apple-time` to catch the gaps. ICMP at low rates misses them.
 - Windows ignores `v`/`M`; the phone hides the toggle for Windows hosts.
 
 ## Commits

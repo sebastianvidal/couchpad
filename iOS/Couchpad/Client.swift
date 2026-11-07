@@ -163,6 +163,10 @@ final class Client: ObservableObject {
 
         let params = NWParameters.tcp
         (params.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options)?.noDelay = true
+        // Voice class: the input lines are tiny and latency-critical, and an active
+        // voice-class connection makes iOS hold off Wi-Fi roaming scans, which otherwise
+        // black the radio out for most of a second at a time (and freeze the picture).
+        params.serviceClass = .interactiveVoice
         (params.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options)?.connectionTimeout = 5
         let connection = NWConnection(to: endpoint, using: params)
         connection.stateUpdateHandler = { [weak self] state in

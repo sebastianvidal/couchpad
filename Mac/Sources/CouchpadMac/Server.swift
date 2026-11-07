@@ -79,6 +79,10 @@ final class Server {
     func start() {
         let params = NWParameters.tcp
         (params.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options)?.noDelay = true
+        // Marked like a voice call: Wi-Fi gives the frames the voice access category, and
+        // iOS holds off its roaming scans (which black the radio out for most of a second)
+        // while a voice-class connection is active.
+        params.serviceClass = .interactiveVoice
         guard let listener = try? NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!) else {
             set(status: "Could not create listener")
             return
