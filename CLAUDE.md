@@ -66,7 +66,14 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   class: unfolded and sideways the size class stays regular. `UIScreen.main` is gone; the
   landscape keyboard-top measurement is stored per window size (`landscapeKeyboardTops`).
 - The system puts a vertical status bar on one long edge; it arrives as a safe-area inset,
-  so nothing in the app should assume insets are symmetric or orientation-bound.
+  so nothing in the app should assume insets are symmetric or orientation-bound. Folded, that
+  panel is 84pt (trailing upright, leading sideways; bottom 34pt) and it stays reserved after
+  `statusBarHidden`, which is why screen mode takes it (`panelEdges` in ContentView: a
+  horizontal inset on one side only). No camera occlusion region on the outer display.
+  Outer display is 466×678pt, square corners on the hinge side. The simulator's display masks
+  and insets live in `/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone Duo.simdevicetype`.
+- No Liquid Glass anywhere: tried on the bar and mouse buttons, looked bad on the device.
+  The flat `secondarySystemBackground` buttons stay as they are.
 - Posture comes from iOS 27.1's `UIHingeInteraction` (`HingeObserver.swift`): closed /
   partiallyOpen / fullyOpen. Half open with the picture on, ContentView splits at the hinge
   (assumed at the middle of the window's long side). Device Hub's "Partially Open" button
