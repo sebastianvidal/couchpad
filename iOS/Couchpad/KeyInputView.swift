@@ -43,6 +43,18 @@ final class KeyInputUIView: UITextField, UITextFieldDelegate {
     weak var inputState: InputState?
 
     private static let sentinel = "\u{200B}"
+    /// The field that last took the keyboard. Each layout's bar has its own field, and a
+    /// layout change hands the keyboard from one to the next.
+    private static weak var owner: KeyInputUIView?
+    /// Whether one of these fields has the keyboard, i.e. whether a keyboard going away
+    /// was ours being dismissed by iOS rather than handed over.
+    static var ownsKeyboard: Bool { owner?.isFirstResponder == true }
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { KeyInputUIView.owner = self }
+        return became
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -69,7 +81,13 @@ final class KeyInputUIView: UITextField, UITextFieldDelegate {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         guard window != nil, inputState?.keyboardShown != false, inputState?.suspended != true else { return }
-        DispatchQueue.main.async { self.becomeFirstResponder() }
+        DispatchQueue.main.async {
+            // Asked again: the keyboard may have been put away in the meantime (a layout
+            // change that also hides it), and a field taking it now would leave it up
+            // with nothing on screen expecting it.
+            guard self.window != nil, self.inputState?.keyboardShown == true, self.inputState?.suspended != true else { return }
+            self.becomeFirstResponder()
+        }
     }
 
     // No caret, no selection handles, no edit menu.

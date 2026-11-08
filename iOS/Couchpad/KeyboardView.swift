@@ -17,7 +17,7 @@ struct Key: Identifiable {
 ///     esc  tab  fn   ⇧   ⌃   ⌥   ⌘
 ///
 /// Above it, a slim "F1–F12" bar (with Release while a modifier is held) swaps the row
-/// for two rows of function keys; the iOS keyboard is summoned from the bar at the bottom.
+/// for two rows of function keys; the iOS keyboard is summoned from the bar along the top.
 /// Arrows and space come from the on-screen controller's bindings or the iOS keyboard.
 /// Docked under the trackpad
 /// or picture on the bar's ⌘ button, and inside the pad. Plain keys send key-down on touch
