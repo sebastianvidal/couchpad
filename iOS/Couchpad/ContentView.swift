@@ -56,7 +56,10 @@ struct ContentView: View {
         // Keyboard avoidance is applied at the root, so it has to be switched off here:
         // sideways, nothing moves for the keyboard (the trackpad is inset by hand instead).
         .ignoresSafeArea(isLandscape || hingeLayout ? .keyboard : [])
-        .ignoresSafeArea(.container, edges: panelEdges)
+        .ignoresSafeArea(.container, edges: panelEdges.union(isLandscape ? .bottom : []))
+        // Sideways, the bar sits in the home indicator's strip rather than leaving a blank
+        // band under it; the indicator fades out of the way (a swipe still brings it back).
+        .persistentSystemOverlays(isLandscape ? .hidden : .automatic)
         .background(Color(.systemBackground))
         .background(
             // The safe-area insets as the system hands them down, to tell a hidden status
@@ -164,7 +167,8 @@ struct ContentView: View {
     /// stays reserved after `statusBarHidden` empties it, leaving a black band beside the
     /// picture. An inset on one horizontal edge with none on the other is that panel: nothing
     /// is in it any more, so the picture and the bar spread into it. A notch or Dynamic Island
-    /// insets both sides alike and is never touched; so are the top and bottom edges.
+    /// insets both sides alike and is never touched; so is the top edge (the bottom one is
+    /// taken sideways, see `body`).
     private var panelEdges: Edge.Set {
         guard screenOn, client.isConnected else { return [] }
         if safeInsets.leading > 0, safeInsets.trailing == 0 { return .leading }
