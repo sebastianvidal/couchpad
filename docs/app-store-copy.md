@@ -100,19 +100,23 @@ https://sebastianvidal.github.io/couchpad/privacy.html
 
 ## App Review notes
 
-Couchpad is a trackpad/keyboard remote for the user's own computer on the local network, in the same category as Remote Mouse, Mobile Mouse and Unified Remote (App Store Review Guideline 4.2.7, remote desktop clients for user-owned computers on a local network).
+Couchpad is a trackpad, keyboard and game-controller remote for the user's own computer on the local network, in the same category as Remote Mouse, Mobile Mouse and Unified Remote (App Store Review Guideline 4.2.7, remote desktop clients for user-owned computers on a local network).
 
-Like those apps, it needs a free companion on the computer, because macOS requires Accessibility permission on the Mac itself to inject input; that cannot be done from an iPhone alone and the companion cannot be distributed through the Mac App Store (sandbox). The companion is free, open source and linked from the app's first-run screen: https://sebastianvidal.github.io/couchpad/
+Like those apps, it needs a free companion on the computer, because macOS requires Accessibility permission on the Mac itself to inject input; that cannot be done from an iPhone alone and the companion cannot be distributed through the Mac App Store (sandbox). The companion is free, open source and linked from the app's first-run screen: https://sebastianvidal.github.io/couchpad/ (Mac 1.5 is current; a Windows companion exists too).
+
+Everything the app sends is ordinary key presses, mouse movement and clicks. The on-screen controller and a connected game controller are translated to the same key and mouse events; the computer never sees a gamepad. The optional "picture" feature shows the user's own Mac screen on the phone; it needs the Screen Recording permission on that Mac, which the Mac asks for the first time.
 
 To test:
 1. On a Mac on the same Wi‑Fi as the test iPhone, download and open the companion from the link above and grant Accessibility when asked.
 2. Open Couchpad on the iPhone. It finds the Mac automatically and shows a pairing screen.
 3. Click the cursor icon in the Mac's menu bar → "Pairing code" and scan the QR with the Scan button (or type the 6 digits).
-4. Move a finger on the trackpad area: the Mac pointer moves. Type on the keyboard: text appears on the Mac.
+4. Move a finger on the trackpad area: the Mac pointer moves. Tap the keyboard button in the bottom bar and type: text appears on the Mac. The key row above the bar holds esc, tab, fn, the modifiers and F1–F12.
+5. Tap the d-pad button in the bottom bar: the lower part of the screen becomes a controller (stick, A B X Y, seven keys). Move the stick: the Mac receives W/A/S/D key presses (FPS preset); press A: space. Bindings are in Settings → Controller → Bindings.
+6. Optional: tap the display button in the bar to show the Mac's screen on the phone; the Mac asks for Screen Recording once.
 
 Without a companion, the app still launches and offers the setup guide and gesture reference; it cannot do more by nature, as with the other apps in this category.
 
-No account, no login, no data collection. The Local Network permission is used only for Bonjour discovery and the direct connection; the camera only for the pairing QR.
+No account, no login, no data collection; all traffic stays on the local network and is encrypted between the phone and the computer. The Local Network permission is used only for Bonjour discovery and the direct connection; the camera only for the pairing QR. The GameController framework is used to read a controller the user attaches to the phone (Backbone or Bluetooth); it is optional.
 
 A demo video: <add link>
 
