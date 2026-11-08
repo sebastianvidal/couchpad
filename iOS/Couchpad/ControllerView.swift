@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// The on-screen controller, in the key strip's place and style: a stick fixed on the left,
+/// The on-screen controller, in the key row's style: a stick fixed on the left,
 /// the face buttons in a diamond on the right, and seven programmable keys (the pad's
 /// bumpers, triggers, stick click and menu, each showing its binding). Tall, the keys run
 /// along the top above the stick and the diamond, like a hand-held console under its
@@ -88,7 +88,7 @@ struct ControllerView: View {
         } else {
             row = min(unit * 1.2, max(28, (size.height - barHeight - 2 * gap) / 2))
         }
-        return KeyStripView(client: client, state: state, rowHeight: row, layout: .pad, showFExternal: $showF)
+        return KeyStripView(client: client, state: state, rowHeight: row, showFExternal: $showF)
     }
 
     /// The programmable keys, the stick and the diamond, with the strip's F bar and key
@@ -126,7 +126,7 @@ struct ControllerView: View {
         let air = max(0, (size.width - stick - diamondWidth) / 3)
         return VStack(spacing: blockGap) {
             if showKeys {
-                KeyStripView(client: client, state: state, rowHeight: row, layout: .pad, showFExternal: $showF)
+                KeyStripView(client: client, state: state, rowHeight: row, showFExternal: $showF)
             }
             VStack(spacing: gap) {
                 if !(showKeys && showF) {
@@ -178,7 +178,7 @@ struct ControllerView: View {
             VirtualStick(controller: controller).frame(width: band, height: band)
             VStack(spacing: gap) {
                 if showKeys {
-                    KeyStripView(client: client, state: state, rowHeight: keyRow, layout: .pad, showFExternal: $showF)
+                    KeyStripView(client: client, state: state, rowHeight: keyRow, showFExternal: $showF)
                 }
                 if !(showKeys && showF) {
                     HStack(spacing: gap) {

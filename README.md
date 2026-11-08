@@ -64,12 +64,12 @@ carries the Mac's address, or type it into Settings → Connection on the phone.
 | Three-finger swipe         | Up: Mission Control · Down: App Exposé · Left/right: switch Spaces (Windows: Task View / desktop / virtual desktops) |
 | Left / Right buttons       | Hold the mouse button                    |
 | iOS keyboard               | Typing, backspace, return as real key presses |
-| esc, tab, arrows, F-keys, WASD strip | Key down while touched, up on release |
+| Key row (⌘ button in the bar) | esc, tab, F1–F12: key down while touched, up on release. Docks under the picture or trackpad (or inside the on-screen controller). Space comes from the iOS keyboard, arrows from the on-screen controller's bindings |
 | ⇧ ⌃ ⌥ ⌘ fn                 | Toggle: held until tapped again; typed letters become shortcuts (⌘C etc.) |
 | On a Windows host          | The same keys show as Ctrl / Alt / Win; fn is hidden |
 | Keyboard button            | Hide / show the iOS keyboard to enlarge the trackpad |
 | Backbone / Bluetooth controller | Forwarded as keys and mouse. Every button and stick direction is bindable in Settings → Controller → Bindings; presets: FPS (WASD + mouse look), MapleStory (arrows, alt jump, ctrl attack), Arrows |
-| On-screen controller (d-pad button in the bar) | Takes the key strip's place, under the picture or trackpad like a hand-held console: an 8-way stick on the left, A B X Y on the right, and seven programmable keys (L1 L2 L3 menu options R1 R2) along the top, or between them in one short band sideways. Slide a finger from key to key like on the strip. Same bindings and presets as a physical controller; each key shows what it does |
+| On-screen controller (d-pad button in the bar) | Under the picture or trackpad like a hand-held console: an 8-way stick on the left, A B X Y on the right, and seven programmable keys (L1 L2 L3 menu options R1 R2) along the top, or between them in one short band sideways. Slide a finger from key to key like on the key row. Same bindings and presets as a physical controller; each key shows what it does |
 
 Pointer speed, scroll speed, natural scrolling, tap-to-drag, three-finger swipes and
 controller look speed are in the gear menu.

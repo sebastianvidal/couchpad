@@ -22,9 +22,8 @@ struct ContentView: View {
     @State private var safeInsets = EdgeInsets()
     @State private var showSetup = false
     @State private var showScanner = false
-    /// The bar's ⌘ button: the strip's compact row (F bar, esc, tab, fn, the modifiers),
-    /// in the pad when it is on, docked under the trackpad or picture when the full strip
-    /// is not there (everywhere but sideways without the pad).
+    /// The bar's ⌘ button: the key row (F bar, esc, tab, fn, the modifiers), in the pad
+    /// when it is on, docked under the trackpad or picture otherwise.
     @State private var showKeyRow = false
     /// A foldable held half open: the picture goes on the half that stands up, the controls
     /// on the half lying flat. Reported by the system; always false elsewhere.
@@ -35,7 +34,7 @@ struct ContentView: View {
     /// Waits for a pinch to settle before asking the host for a sharper (or coarser) stream.
     @State private var zoomSettle: Task<Void, Never>?
     /// Top edge of the iOS keyboard in landscape (window coordinates), measured the first
-    /// time it appears and remembered per window size, so the key block can end exactly where
+    /// time it appears and remembered per window size, so the layout can end exactly where
     /// it begins. Keyed by size because a foldable has two displays with different keyboards.
     @AppStorage("landscapeKeyboardTops") private var landscapeKeyboardTops = ""
 
@@ -226,10 +225,9 @@ struct ContentView: View {
     }
 
     /// Same skeleton as the screen layout and the flat half of a half-open Duo: the trackpad
-    /// above the bar, 6pt apart, with the strip's compact row docked between them on demand
-    /// (the bar's ⌘ button), so toggling the picture moves nothing. The pad takes the bottom
-    /// half instead. Arrows and space are the sideways strip's; upright the iOS keyboard
-    /// has space and the stick or a swipe stands in for the arrows.
+    /// above the bar, 6pt apart, with the key row docked between them on demand (the bar's
+    /// ⌘ button), so toggling the picture moves nothing. The pad takes the bottom half
+    /// instead. Arrows and space come from the pad's bindings or the iOS keyboard.
     private var portraitBody: some View {
         GeometryReader { geo in
             VStack(spacing: 6) {
@@ -248,7 +246,7 @@ struct ContentView: View {
     /// Upright, the pad gets the bottom half of what is above the bar (`available`) and
     /// fills it like the flat half of a half-open Duo: keys key-shaped, the room left over
     /// going to the stick and the air around it; the picture or trackpad gets the top half.
-    /// While the iOS keyboard is up the pad is only the strip row, sized as it always was.
+    /// While the iOS keyboard is up the pad is only the key row, sized as it always was.
     private func portraitPad(height available: CGFloat) -> some View {
         let typing = inputState.keyboardShown
         return ControllerView(controller: controller, client: client, state: inputState,
@@ -256,13 +254,12 @@ struct ContentView: View {
             .frame(height: typing ? nil : max(0, (available - 6) / 2))
     }
 
-    /// Trackpad on one side (your choice), the keys in a column on the other. The key rows
-    /// stretch to use the column's full height, so with the iOS keyboard hidden the keys are
-    /// large.
+    /// The screen layout's skeleton without the picture: the trackpad full width, the key
+    /// row docked under it on demand (the bar's ⌘ button), then the bar; with the pad on,
+    /// a short band under the trackpad instead.
     /// Nothing here moves for the keyboard: the whole body ignores it, and instead everything
-    /// is inset by the keyboard's height while it is up, so the bar at the bottom sits just
-    /// above the keyboard (as in the screen layout) and the key block is sized to end on the
-    /// line above the bar.
+    /// is inset by the keyboard's height while it is up, so the trackpad shrinks and the row
+    /// and the bar sit just above the keyboard (as in the screen layout).
     private var landscapeBody: some View {
         GeometryReader { geo in
             // Distance from our bottom edge up to the keyboard's top edge, in the same coordinates.
@@ -271,41 +268,19 @@ struct ContentView: View {
             let inset = inputState.keyboardShown ? max(0, bottom - keyboardTop + 8) : 0   // 8pt of air above the keyboard, like every other gap
             let above = geo.size.height - inset - 36 - 6   // what is left over the bar and its gap
             VStack(spacing: 6) {
+                trackpad
                 if settings.showController {
                     // Sideways the pad is a short band under the trackpad, thumbs at the
                     // bottom corners, rather than a column beside it.
-                    trackpad
                     ControllerView(controller: controller, client: client, state: inputState, rowHeight: wideRowHeight(above), wide: true, showKeys: showKeyRow)
-                } else {
-                    HStack(spacing: 10) {
-                        if settings.trackpadOnRight {
-                            landscapeControls(width: max(300, geo.size.width * 0.42), above: above)
-                            trackpad
-                        } else {
-                            trackpad
-                            landscapeControls(width: max(300, geo.size.width * 0.42), above: above)
-                        }
-                    }
+                } else if showKeyRow {
+                    keyRow
                 }
-                bar(picture: false)
+                bar(picture: false, keysToggle: true)
             }
             .padding(.bottom, inset)
         }
         .padding(.top, 4)
-    }
-
-    /// The key block is anchored at the top with fixed row heights, so the keys never move
-    /// when the keyboard comes up.
-    private func landscapeControls(width: CGFloat, above: CGFloat) -> some View {
-        // Rows fill the column: F-key bar + gap + 3 rows + 2 gaps = `above`, capped so the
-        // keys stay keys on a large display (an unfolded iPhone Duo).
-        let rowHeight = min(120, max(36, (above - 28 - 3 * 4) / 3))
-        return VStack(spacing: 6) {
-            KeyStripView(client: client, state: inputState, rowHeight: rowHeight,
-                         replacesRowsWhenExpanded: inputState.keyboardShown)
-            Spacer(minLength: 0)   // keeps the column pinned to the top
-        }
-        .frame(width: width)
     }
 
     // MARK: Half-open foldable
@@ -345,8 +320,8 @@ struct ContentView: View {
         .padding(.top, 4)
     }
 
-    /// The flat half: a big trackpad over the bar, with the strip's compact row docked
-    /// between them on demand, the same as the screen layout.
+    /// The flat half: a big trackpad over the bar, with the key row docked between them
+    /// on demand, the same as the screen layout.
     private func hingeControls(inset: CGFloat) -> some View {
         VStack(spacing: 6) {
             if settings.showController {
@@ -365,7 +340,7 @@ struct ContentView: View {
     // MARK: Screen layout
 
     /// With the Mac's picture on, the picture gets the whole window but one slim bar: the
-    /// strip's compact row docks under the picture on demand (the bar's ⌘ button), and the
+    /// key row docks under the picture on demand (the bar's ⌘ button), and the
     /// iOS keyboard is summoned from the bar. Sideways, the body ignores the keyboard
     /// (see `body`), so everything is inset by hand to sit above it; upright, keyboard
     /// avoidance at the root shrinks the picture for us.
@@ -390,7 +365,7 @@ struct ContentView: View {
                 .padding(.bottom, inset)
             } else {
             // Whatever band the picture leaves under itself stays empty until asked: the
-            // compact row docks there on ⌘, the same as everywhere else.
+            // key row docks there on ⌘, the same as everywhere else.
             VStack(spacing: 6) {
                 trackpad
                 if showKeyRow { keyRow }
@@ -412,11 +387,12 @@ struct ContentView: View {
     }
 
     /// The one bar every layout ends with, picture on or off, so every control keeps its
-    /// place: the dot, the screen toggle, then (picture on) the keys and keyboard toggles,
-    /// the mouse buttons, the controller mark, (picture off) the setup guide, and settings.
-    /// Where the full strip is on screen (sideways, no pad) it carries its own keyboard toggle.
+    /// place: the dot, the screen toggle, the keys (⌘) and keyboard toggles, the pad toggle,
+    /// the mouse buttons, the controller mark, (picture and pad off) the setup guide, and settings.
     private func bar(picture: Bool, keysToggle: Bool = false) -> some View {
-        let keyboardButton = (picture || keysToggle) && !settings.showController
+        // Wherever the ⌘ button is, so is the keyboard's: with the pad on, the iOS keyboard
+        // takes the pad's place (only its key row stays) until it is dismissed.
+        let keyboardButton = settings.showController || keysToggle
         return HStack(spacing: 8) {
             Menu {
                 Section {
@@ -449,17 +425,13 @@ struct ContentView: View {
                     settings.showScreen.toggle()
                 }
             }
-            // Wherever the full strip is not on screen (the pad is on, the picture took its
-            // place, or the phone is upright) the strip's compact row is summoned from the
-            // bar, whether or not the picture is up.
+            // The key row is summoned from the bar, into the pad or docked under the
+            // trackpad or picture.
             if settings.showController || keysToggle {
                 barButton(showKeyRow ? "command.square.fill" : "command.square", label: showKeyRow ? "Hide keys" : "Show keys") {
                     showKeyRow.toggle()
                 }
             }
-            // With the pad on, the key row's F bar has the keyboard button; a second one here
-            // squeezes the mouse buttons out of an upright phone. Without the pad, wherever
-            // the full strip (which has its own) is not on screen, this is the way in.
             if keyboardButton {
                 barButton(inputState.keyboardShown ? "keyboard.chevron.compact.down" : "keyboard",
                           label: inputState.keyboardShown ? "Hide keyboard" : "Show keyboard") {
@@ -482,7 +454,7 @@ struct ContentView: View {
             }
             // Upright and connected, the keyboard and display buttons take its room (it is in
             // Settings, and on the trackpad while not connected); it stays sideways.
-            if !picture, !settings.showController, !(keysToggle && client.isConnected) {
+            if !picture, !settings.showController, !(keysToggle && client.isConnected && !isLandscape) {
                 barButton("questionmark.circle", label: "Setup guide") { showSetup = true }
             }
             barButton("gearshape", label: "Settings") { showSettings = true }
@@ -502,11 +474,11 @@ struct ContentView: View {
         .accessibilityLabel(label)
     }
 
-    /// The strip's compact row (F bar over esc, tab, fn and the modifiers), docked under
-    /// the trackpad or picture where the full strip is not on screen. Upright it keeps the
-    /// strip's row height; sideways, where height is short, it is a slimmer row.
+    /// The key row (F bar over esc, tab, fn and the modifiers), docked under the trackpad
+    /// or picture. Upright it keeps the pad's row height; sideways, where height is short,
+    /// it is a slimmer row.
     private var keyRow: some View {
-        KeyStripView(client: client, state: inputState, rowHeight: isLandscape ? 36 : portraitRowHeight, layout: .pad)
+        KeyStripView(client: client, state: inputState, rowHeight: isLandscape ? 36 : portraitRowHeight)
     }
 
     /// Row height for the wide pad band: short, so the picture keeps most of the height.
@@ -681,7 +653,7 @@ struct ContentView: View {
                     Toggle("Natural scrolling", isOn: $settings.naturalScroll)
                     Toggle("Tap, then touch-and-hold to drag", isOn: $settings.tapToDrag)
                     Toggle("Three-finger swipes (Mission Control, Spaces)", isOn: $settings.threeFingerSwipes)
-                    Toggle("Trackpad on the right (landscape)", isOn: $settings.trackpadOnRight)
+                    Toggle("Trackpad on the right (half open, sideways)", isOn: $settings.trackpadOnRight)
                 }
                 Section("Screen") {
                     Toggle("Show the Mac's screen on the trackpad", isOn: $settings.showScreen)
@@ -703,7 +675,7 @@ struct ContentView: View {
                 }
                 Section("Controller") {
                     Toggle("On-screen controller", isOn: $settings.showController)
-                    Text("A stick and buttons in place of the key strip, under the picture or trackpad. Every button shows what it does; change them in Bindings below.")
+                    Text("A stick and buttons under the picture or trackpad. Every button shows what it does; change them in Bindings below.")
                         .font(.footnote).foregroundStyle(.secondary)
                     if let name = controller.controllerName {
                         Label(name, systemImage: "gamecontroller.fill").foregroundStyle(.green)

@@ -1,40 +1,30 @@
 import SwiftUI
 
 struct Key: Identifiable {
-    /// Keycodes are unique across the strip, and stable across view rebuilds (a UUID would
-    /// change every time SwiftUI remade the strip).
+    /// Keycodes are unique across the row, and stable across view rebuilds (a UUID would
+    /// change every time SwiftUI remade the row).
     var id: Int { code }
     let label: String
     let code: Int            // macOS virtual keycode
-    var width: CGFloat = 1   // in grid columns
     var isModifier = false
     var symbol: String? = nil // SF Symbol instead of text
     var small = false
     var windowsLabel: String? = nil // text shown when the host is a PC; "" blanks the key
 }
 
-/// The keys the iOS keyboard doesn't have, laid out like the corner of a real keyboard, in
-/// seven columns with no empty cells:
+/// The keys the iOS keyboard doesn't have, in one row of seven:
 ///
-///     esc  tab  fn   '   ⌫ ⌫ ⌫
-///      ⇧    ⌃    ⌥   ⌘   ←  ↑  →
-///        space (4)       ←  ↓  →      (← and → are one tall key each)
+///     esc  tab  fn   ⇧   ⌃   ⌥   ⌘
 ///
-/// Above it, a slim "F1–F12" bar expands two rows of function keys. Row heights are fixed, so
-/// the block never changes size when the iOS keyboard appears. Plain keys send key-down on
-/// touch and key-up on release, so holding works in games. Modifiers toggle and stay held.
+/// Above it, a slim "F1–F12" bar (with Release while a modifier is held, and the iOS
+/// keyboard's button) swaps the row for two rows of function keys. Arrows and space come
+/// from the on-screen controller's bindings or the iOS keyboard. Docked under the trackpad
+/// or picture on the bar's ⌘ button, and inside the pad. Plain keys send key-down on touch
+/// and key-up on release, so holding works in games. Modifiers toggle and stay held.
 struct KeyStripView: View {
     @ObservedObject var client: Client
     @ObservedObject var state: InputState
     var rowHeight: CGFloat = 42
-    /// When the iOS keyboard is out there is no room to grow: the F-bar then swaps the
-    /// three main rows for the two F-key rows in the same space instead of adding rows.
-    var replacesRowsWhenExpanded = false
-    /// `full` is the strip. `pad` drops the arrows, space, quote and backspace (the stick,
-    /// the pad and the iOS keyboard cover those) and keeps the F bar over one row of seven:
-    /// esc, tab, fn and the four modifiers. Opened, the two F rows take two rows.
-    enum Layout { case full, pad }
-    var layout: Layout = .full
     /// The pad owns the F toggle, so it can make room for the second F row.
     var showFExternal: Binding<Bool>? = nil
     @State private var showFState = false
@@ -42,7 +32,7 @@ struct KeyStripView: View {
     private func setShowF(_ value: Bool) {
         if let binding = showFExternal { binding.wrappedValue = value } else { showFState = value }
     }
-    /// Where each visible key is, in the strip's coordinate space, for the touch overlay.
+    /// Where each visible key is, in the row's coordinate space, for the touch overlay.
     @State private var keyFrames: [Int: CGRect] = [:]
     /// Keys currently under a finger (modifiers show as held instead).
     @State private var pressedKeys = Set<Int>()
@@ -51,49 +41,29 @@ struct KeyStripView: View {
     private let columns: CGFloat = 7
     private let barHeight: CGFloat = 28
 
-    private let topRow: [Key] = [
+    /// esc, tab, fn and the four modifiers: one key per column.
+    private let padRow: [Key] = [
         Key(label: "esc", code: 53, small: true),
         Key(label: "", code: 48, symbol: "arrow.right.to.line"),
         Key(label: "", code: 63, isModifier: true, symbol: "fn", small: true, windowsLabel: ""),
-        Key(label: "'", code: 39),
-        Key(label: "", code: 51, width: 3, symbol: "delete.left"),
-    ]
-    private let modifierRow: [Key] = [
         Key(label: "", code: 56, isModifier: true, symbol: "shift"),
         Key(label: "", code: 59, isModifier: true, symbol: "control", windowsLabel: "Ctrl"),
         Key(label: "", code: 58, isModifier: true, symbol: "option", windowsLabel: "Alt"),
         Key(label: "", code: 55, isModifier: true, symbol: "command", windowsLabel: "Win"),
     ]
-    private let spaceRow: [Key] = [Key(label: "space", code: 49, width: 4, small: true)]
-    private let left = Key(label: "", code: 123, symbol: "arrowtriangle.left.fill")
-    private let right = Key(label: "", code: 124, symbol: "arrowtriangle.right.fill")
-    private let up = Key(label: "", code: 126, symbol: "arrowtriangle.up.fill")
-    private let down = Key(label: "", code: 125, symbol: "arrowtriangle.down.fill")
     private let fRows: [[Key]] = [
         [Key(label: "F1", code: 122, small: true), Key(label: "F2", code: 120, small: true), Key(label: "F3", code: 99, small: true), Key(label: "F4", code: 118, small: true), Key(label: "F5", code: 96, small: true), Key(label: "F6", code: 97, small: true), Key(label: "F7", code: 98, small: true)],
         [Key(label: "F8", code: 100, small: true), Key(label: "F9", code: 101, small: true), Key(label: "F10", code: 109, small: true), Key(label: "F11", code: 103, small: true), Key(label: "F12", code: 111, small: true), Key(label: "`", code: 50), Key(label: "⇪", code: 57)],
     ]
 
-    /// esc, tab, fn and the four modifiers: one key per column.
-    private var padRow: [Key] { Array(topRow.prefix(3)) + modifierRow }
-
-    /// Fixed total height, so the parent can lay out around a block that never changes.
+    /// Total height, so the parent can lay out around the row: the F rows take two rows.
     var height: CGFloat {
-        switch layout {
-        case .full:
-            let rows: CGFloat = (showF && !replacesRowsWhenExpanded) ? 5 : 3
-            return barHeight + gap + rows * rowHeight + (rows - 1) * gap
-        case .pad:
-            return barHeight + gap + (showF ? 2 * rowHeight + gap : rowHeight)
-        }
+        barHeight + gap + (showF ? 2 * rowHeight + gap : rowHeight)
     }
-
-    /// Two F rows standing in for three main rows share their exact height.
-    private var swappedRowHeight: CGFloat { (3 * rowHeight + 2 * gap - gap) / 2 }
 
     private var allKeys: [Int: Key] {
         var keys: [Int: Key] = [:]
-        for key in topRow + modifierRow + spaceRow + [left, right, up, down] + fRows.flatMap({ $0 }) { keys[key.code] = key }
+        for key in padRow + fRows.flatMap({ $0 }) { keys[key.code] = key }
         return keys
     }
 
@@ -102,37 +72,10 @@ struct KeyStripView: View {
             let unit = (geo.size.width - gap * (columns - 1)) / columns
             VStack(spacing: gap) {
                 fBar
-                switch layout {
-                case .pad:
-                    if showF {
-                        ForEach(fRows.indices, id: \.self) { row(fRows[$0], unit: unit) }
-                    } else {
-                        row(padRow, unit: unit)
-                    }
-                case .full:
-                if showF && replacesRowsWhenExpanded {
-                    ForEach(fRows.indices, id: \.self) { row(fRows[$0], unit: unit, height: swappedRowHeight) }
-                } else {
                 if showF {
                     ForEach(fRows.indices, id: \.self) { row(fRows[$0], unit: unit) }
-                }
-                row(topRow, unit: unit)
-                HStack(spacing: gap) {
-                    VStack(spacing: gap) {
-                        row(modifierRow, unit: unit)
-                        row(spaceRow, unit: unit)
-                    }
-                    .frame(width: unit * 4 + gap * 3)
-                    HStack(spacing: gap) {
-                        keyView(left).frame(width: unit, height: rowHeight * 2 + gap)
-                        VStack(spacing: gap) {
-                            keyView(up).frame(width: unit, height: rowHeight)
-                            keyView(down).frame(width: unit, height: rowHeight)
-                        }
-                        keyView(right).frame(width: unit, height: rowHeight * 2 + gap)
-                    }
-                }
-                }
+                } else {
+                    row(padRow, unit: unit)
                 }
             }
             .coordinateSpace(name: "keys")
@@ -189,10 +132,10 @@ struct KeyStripView: View {
         }
     }
 
-    private func row(_ keys: [Key], unit: CGFloat, height: CGFloat? = nil) -> some View {
+    private func row(_ keys: [Key], unit: CGFloat) -> some View {
         HStack(spacing: gap) {
             ForEach(keys) { key in
-                keyView(key).frame(width: unit * key.width + gap * (key.width - 1), height: height ?? rowHeight)
+                keyView(key).frame(width: unit, height: rowHeight)
             }
         }
     }

@@ -32,9 +32,9 @@ TRACKPAD
 
 KEYBOARD
 • The regular iPhone keyboard, typing straight to the computer
-• The keys a phone doesn't have, one tap away: esc, tab, ⌘, ⌥, ⌃, ⇧ and F1–F12 (arrows too, sideways)
+• The keys a phone doesn't have, one tap away: esc, tab, ⌘, ⌥, ⌃, ⇧ and F1–F12, in a row under the trackpad
 • Modifiers toggle and stay held, so ⌘C, ⌥Tab and friends just work
-• Hold-to-press keys for games: WASD, space and more stay down while your finger does
+• Hold-to-press keys for games: keys stay down while your finger does, and the on-screen controller's buttons can be WASD, space, arrows or anything else
 
 BUILT FOR GAMES
 Pointer movement is sent as raw mouse motion, which is what games use for camera look, and keys are sent as real presses that stay held. Menus, strategy, point-and-click, launchers, Steam Big Picture: all from the couch.
@@ -59,7 +59,7 @@ remote,mouse,touchpad,wireless,mac,pc,windows,tv,couch,controller,cursor,wifi,ga
 
 ## What's New (1.1)
 
-- See your Mac's screen on the phone: tap the display icon and the picture fills the trackpad, which keeps working as a trackpad. The keys dock under the picture when there's room; otherwise a compact row of F keys, esc, tab and the modifiers is one tap away. Needs the Mac companion 1.2.
+- See your Mac's screen on the phone: tap the display icon and the picture fills the trackpad, which keeps working as a trackpad. A compact row of F keys, esc, tab and the modifiers docks under the picture, one tap away. Needs the Mac companion 1.2.
 - iPhone Duo: layouts for folded, unfolded and half-open, with the picture on the upright half and the trackpad on the flat one.
 - Keys roll under a sliding finger; hold one and slide to the next.
 - Smoother streaming on Wi-Fi: lost packets cost a frame at most, never a freeze.
