@@ -5,7 +5,8 @@ import UIKit
 /// the face buttons in a diamond on the right, and seven programmable keys (the pad's
 /// bumpers, triggers, stick click and menu, each showing its binding). Tall, the keys run
 /// along the top above the stick and the diamond, like a hand-held console under its
-/// screen; wide, everything sits in one short band: stick, keys, diamond.
+/// screen; wide, everything sits in one short band: stick, keys, diamond. The strip's
+/// F bar and key row are always there: above the keys tall, over them in the band wide.
 /// Every control reports to `ControllerBridge`, so the profile that drives a physical pad
 /// drives this one. The keys share the strip's multi-touch overlay, so a finger sliding
 /// from one to the next releases the first and presses the next.
@@ -19,8 +20,6 @@ struct ControllerView: View {
     /// and to the air around it.
     var rowHeight: CGFloat? = nil
     var wide = false
-    /// The strip's F bar and key row, summoned from the bar's ⌘ button; off by default.
-    var showKeys = false
     @State private var keyFrames: [Int: CGRect] = [:]
     @State private var pressedCodes = Set<Int>()
     @State private var showF = false
@@ -41,13 +40,13 @@ struct ControllerView: View {
     private let blockGap: CGFloat = 6     // between the strip and the pad, like every other block
 
     /// Tall: a pad the height of the old three-row strip, plus the strip's F bar and key
-    /// row when shown. Wide: one band, three rows tall. While the iOS keyboard is up the
+    /// row. Wide: one band, three rows tall. While the iOS keyboard is up the
     /// keyboard is the pad: only the strip row stays (its F bar brings the pad back).
     private func blockHeight(rowHeight: CGFloat) -> CGFloat {
         let row = wide ? (3 * rowHeight + 2 * gap - barHeight - 2 * gap) / 2 : (3 * rowHeight + barHeight) / 4
         if state.keyboardShown { return barHeight + gap + (showF ? 2 * row + gap : row) }
         if wide { return 3 * rowHeight + 2 * gap }
-        return (showKeys ? barHeight + gap + row + blockGap : 0) + 4 * row + 3 * gap
+        return barHeight + gap + row + blockGap + 4 * row + 3 * gap
     }
 
     var body: some View {
@@ -92,7 +91,7 @@ struct ControllerView: View {
     }
 
     /// The programmable keys, the stick and the diamond, with the strip's F bar and key
-    /// row above them when asked for, all at one row height. The pad is as tall as the
+    /// row above them, all at one row height. The pad is as tall as the
     /// three-row strip it replaced, so the picture above it keeps its share of the window.
     /// Opening F1–F12 swaps the key row and the programmable row for the two F rows.
     private func tallBody(_ size: CGSize) -> some View {
@@ -101,35 +100,28 @@ struct ControllerView: View {
         let strip = barHeight + gap + blockGap   // the strip's bar and gaps; its row is a row
         // Given the strip's row height, the pad's four rows fill the strip's old height
         // (bar + three rows); filling a half, the rows share what there is, up to key shape.
-        func rows(keys: Bool) -> (row: CGFloat, lower: CGFloat) {
-            let row: CGFloat
-            if let rowHeight {
-                row = min(unit * 1.2, (3 * rowHeight + barHeight) / 4)
-            } else {
-                row = min(unit * 1.2, max(28, (size.height - (keys ? strip : 0) - 3 * gap) / (keys ? 5 : 4)))
-            }
-            // Under the keys, the stick and the diamond: three rows tall given a row height,
-            // whatever the keys leave when filling.
-            let above = (keys ? strip + row : 0) + row + gap
-            return (row, fill ? max(row * 3 + gap * 2, size.height - above) : row * 3 + gap * 2)
+        let row: CGFloat
+        if let rowHeight {
+            row = min(unit * 1.2, (3 * rowHeight + barHeight) / 4)
+        } else {
+            row = min(unit * 1.2, max(28, (size.height - strip - 3 * gap) / 5))
         }
-        let (row, lower) = rows(keys: showKeys)
-        // Across, nothing depends on the key row: the stick is sized for the shorter room
-        // it leaves (so it neither grows nor shrinks when ⌘ is tapped) and, with the
-        // diamond, spaced evenly: the air left of the stick, between the two and right of
-        // the diamond is the same, at least `minAir`.
+        // Under the keys, the stick and the diamond: three rows tall given a row height,
+        // whatever the keys leave when filling.
+        let above = strip + row + row + gap
+        let lower = fill ? max(row * 3 + gap * 2, size.height - above) : row * 3 + gap * 2
+        // The stick and the diamond are spaced evenly: the air left of the stick, between
+        // the two and right of the diamond is the same, at least `minAir`.
         let minAir: CGFloat = 12
         let diamondWidth = unit * 3 + gap * 2
         let stick = fill
-            ? max(0, min(lower, rows(keys: true).lower, size.width - diamondWidth - 3 * minAir))
+            ? max(0, min(lower, size.width - diamondWidth - 3 * minAir))
             : unit * 3 + gap * 2
         let air = max(0, (size.width - stick - diamondWidth) / 3)
         return VStack(spacing: blockGap) {
-            if showKeys {
-                KeyStripView(client: client, state: state, rowHeight: row, showFExternal: $showF)
-            }
+            KeyStripView(client: client, state: state, rowHeight: row, showFExternal: $showF)
             VStack(spacing: gap) {
-                if !(showKeys && showF) {
+                if !showF {
                     HStack(spacing: gap) {
                         ForEach(ControllerView.topRow, id: \.0) { control, tag in
                             key(control, tag: tag).frame(width: unit, height: row)
@@ -148,7 +140,7 @@ struct ControllerView: View {
     }
 
     /// One band: stick, a middle column (the seven programmable keys, with the strip's F
-    /// bar and key row over them when asked for; the F rows take both rows when opened),
+    /// bar and key row over them; the F rows take both rows when opened),
     /// diamond.
     private func wideBody(_ size: CGSize) -> some View {
         // The stick's and the diamond's squares. Given a row height, three rows; filling,
@@ -170,17 +162,15 @@ struct ControllerView: View {
         }
         let middle = size.width - band * 2 - gap * 2
         let unit = (middle - gap * 6) / 7
-        // With the strip: bar + gap + two key rows + gap fill the band exactly (filling, up
-        // to key shape). Without it, the programmable keys stay key-shaped, centred in the band.
+        // The strip's bar + gap + two key rows + gap fill the band exactly (filling, up
+        // to key shape).
         let stripRow = (band - barHeight - 2 * gap) / 2
-        let keyRow = showKeys ? (rowHeight == nil ? min(stripRow, unit * 1.2) : stripRow) : min(band, unit * 1.2)
+        let keyRow = rowHeight == nil ? min(stripRow, unit * 1.2) : stripRow
         return HStack(spacing: gap) {
             VirtualStick(controller: controller).frame(width: band, height: band)
             VStack(spacing: gap) {
-                if showKeys {
-                    KeyStripView(client: client, state: state, rowHeight: keyRow, showFExternal: $showF)
-                }
-                if !(showKeys && showF) {
+                KeyStripView(client: client, state: state, rowHeight: keyRow, showFExternal: $showF)
+                if !showF {
                     HStack(spacing: gap) {
                         ForEach(ControllerView.topRow, id: \.0) { control, tag in
                             key(control, tag: tag).frame(width: unit, height: keyRow)
@@ -188,7 +178,7 @@ struct ControllerView: View {
                     }
                 }
             }
-            .frame(width: middle, height: band, alignment: showKeys && rowHeight != nil ? .top : .center)
+            .frame(width: middle, height: band, alignment: rowHeight != nil ? .top : .center)
             diamond(unit: faceUnit, row: row).frame(width: band, height: band)
         }
         .frame(height: band)

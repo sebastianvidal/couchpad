@@ -26,7 +26,7 @@ between, on your Wi-Fi or through your VPN.
 - **Also new:** the Mac's screen on the phone. Turn it on with the display icon next to the gear;
   the picture fills the trackpad, which keeps working as a trackpad (or, as an option, the
   pointer jumps to where you touch), with the compact key row (F keys, esc, tab, fn, the
-  modifiers) one tap away under the picture. Hardware HEVC at
+  modifiers) always under the picture. Hardware HEVC at
   up to 60 frames a second, sent as encrypted UDP datagrams with parity and retransmission so
   a lost Wi-Fi packet costs a frame at most, never a stall; the host paces itself by the
   phone's acknowledgements so lag can't build up. Half-open Duo: picture on the upright half,
@@ -79,7 +79,7 @@ carries the Mac's address, or type it into Settings → Connection on the phone.
 | Three-finger swipe         | Up: Mission Control · Down: App Exposé · Left/right: switch Spaces (Windows: Task View / desktop / virtual desktops) |
 | Left / Right buttons       | Hold the mouse button                    |
 | iOS keyboard               | Typing, backspace, return as real key presses |
-| Key row (⌘ button in the bar) | An F1–F12 bar, then esc, tab, fn, ⇧ ⌃ ⌥ ⌘. Keys go down while touched and up on release. Above the on-screen controller when it is on, docked under the picture or trackpad when it is off. The F1–F12 bar swaps the row for two rows of function keys; while a modifier is held it also shows Release |
+| Key row                    | An F1–F12 bar, then esc, tab, fn, ⇧ ⌃ ⌥ ⌘, always on screen. Keys go down while touched and up on release. Above the on-screen controller when it is on, under the picture or trackpad when it is off. The F1–F12 bar swaps the row for two rows of function keys; while a modifier is held it also shows Release. Half open on an iPhone Duo while typing, the keyboard takes the flat half and the row floats over the picture on the bar's ⌘ button |
 | ⇧ ⌃ ⌥ ⌘ fn                 | Toggle: held until tapped again; typed letters become shortcuts (⌘C etc.) |
 | On a Windows host          | The same keys show as Ctrl / Alt / Win; fn is hidden |
 | Keyboard button (bar)      | Show / hide the iOS keyboard. Space and typing come from it. With the on-screen controller on, the keyboard takes the pad's place (the key row stays above it) until you put it away |
@@ -112,8 +112,8 @@ https://sebastianvidal.github.io/couchpad/controller.html
   Presets: FPS (stick is WASD, A space, B ctrl, R2/L2 left/right click), MapleStory (arrows,
   alt jump, ctrl attack), Arrows (menus, launchers, 2D games). Any key can be a keyboard key,
   left click, right click, or nothing.
-- **Other keys.** The bar's ⌘ button opens the key row (F1–F12, esc, tab, fn and the
-  modifiers) above the pad. Arrows come from the bindings, space and typing from the iOS
+- **Other keys.** The key row (F1–F12, esc, tab, fn and the modifiers) is always there
+  above the pad. Arrows come from the bindings, space and typing from the iOS
   keyboard: the bar's keyboard button swaps the pad for the keyboard and back.
 - Works with Mac and Windows hosts; it only sends keys and mouse. A Backbone or Bluetooth
   controller attached to the phone uses the same bindings.
