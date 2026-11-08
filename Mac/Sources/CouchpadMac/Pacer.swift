@@ -10,6 +10,11 @@ import Network
 /// fullscreen game on, macOS Game Mode demotes every other process, and a dispatch timer's
 /// 1 ms ticks came late and in clumps. Credit is also earned by the clock, not per tick, so
 /// a late tick sends what the interval was owed (capped at 10 ms worth) instead of starving.
+///
+/// Game Mode goes further: it coalesces a background process's timers onto a 30 Hz grid,
+/// real-time thread or not (the stats line showed exactly 33 ms gaps), while the process
+/// still gets CPU. So once a tick lands late, the thread stops trusting timers and spins to
+/// its deadlines (yielding the core between checks) for a few seconds at a time.
 final class Pacer {
     /// One phone's queue: its UDP flow and the sealed datagrams waiting to go.
     private final class Queue {
@@ -80,6 +85,7 @@ final class Pacer {
         let tickAbs = tickNanos * UInt64(timebase.denom) / UInt64(timebase.numer)
         var deadline = mach_absolute_time()
         var last = CFAbsoluteTimeGetCurrent()
+        var spinUntil = 0.0
         while true {
             // Nothing queued anywhere: sleep until something is, and restart the clock.
             wake.lock()
@@ -97,10 +103,16 @@ final class Pacer {
             }
 
             deadline += tickAbs
-            mach_wait_until(deadline)
+            if last < spinUntil {
+                while mach_absolute_time() < deadline { sched_yield() }
+            } else {
+                mach_wait_until(deadline)
+            }
             let now = CFAbsoluteTimeGetCurrent()
             let elapsed = now - last
             last = now
+            // The timer overshot by more than a few ticks: timers are being coalesced.
+            if elapsed > 0.005 { spinUntil = now + 3 }
 
             lock.lock()
             if elapsed > maxGap { maxGap = elapsed }
