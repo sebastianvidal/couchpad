@@ -11,11 +11,15 @@ import UIKit
 /// from one to the next releases the first and presses the next.
 struct ControllerView: View {
     @ObservedObject var controller: ControllerBridge
-    /// Height of one of the grid's rows (four tall, three wide); nil fills the parent.
+    let client: Client
+    @ObservedObject var state: InputState
+    /// Tall: the key strip's row height (the pad below is sized to the strip's old height).
+    /// Wide: the band's row height, a third of its height. Nil fills the parent.
     var rowHeight: CGFloat? = nil
     var wide = false
     @State private var keyFrames: [Int: CGRect] = [:]
     @State private var pressedCodes = Set<Int>()
+    @State private var showF = false
 
     private let gap: CGFloat = 4
     /// The programmable row: labelled by what they do, tagged with the pad control they are.
@@ -29,9 +33,13 @@ struct ControllerView: View {
     private static let controlByCode: [Int: Control] = Dictionary(uniqueKeysWithValues: padKeys.map { ($1.code, $0) })
     private static func code(_ control: Control) -> Int { padKeys.first { $0.0 == control }!.1.code }
 
-    /// Fixed total height for a given row height, so the parent can lay out around it.
+    private let barHeight: CGFloat = 28   // the strip's F bar
+    private let blockGap: CGFloat = 6     // between the strip and the pad, like every other block
+
+    /// Tall: the strip's compact rows plus a pad the height of the old three-row strip.
+    /// Wide: one band, three rows tall.
     static func height(rowHeight: CGFloat, wide: Bool) -> CGFloat {
-        wide ? 3 * rowHeight + 2 * 4 : 4 * rowHeight + 3 * 4
+        wide ? 3 * rowHeight + 2 * 4 : (28 + 2 * 4 + 2 * rowHeight) + 6 + (3 * rowHeight + 28 + 2 * 4 + 4)
     }
 
     var body: some View {
@@ -50,40 +58,62 @@ struct ControllerView: View {
         .frame(height: rowHeight.map { ControllerView.height(rowHeight: $0, wide: wide) })
     }
 
-    /// Keys on top, stick and diamond under them.
+    /// The strip's compact rows on top, then the programmable keys, the stick and the diamond.
+    /// The pad is as tall as the three-row strip it replaced, so the picture above it keeps
+    /// its share of the window.
     private func tallBody(_ size: CGSize) -> some View {
         let unit = (size.width - gap * 6) / 7
-        // Keys stay key-shaped: however tall the column, a row is at most 1.2 keys high.
-        let row = min(unit * 1.2, rowHeight ?? max(28, (size.height - gap * 3) / 4))
-        return VStack(spacing: gap) {
-            HStack(spacing: gap) {
-                ForEach(ControllerView.topRow, id: \.0) { control, tag in
-                    key(control, tag: tag).frame(width: unit, height: row)
+        // Given the strip's row height, the pad's four rows fill the strip's old height
+        // (bar + three rows); filling a half, both share one row height.
+        let stripRow: CGFloat
+        let row: CGFloat
+        if let rowHeight {
+            stripRow = rowHeight
+            row = min(unit * 1.2, (3 * rowHeight + barHeight) / 4)
+        } else {
+            row = min(unit * 1.2, max(28, (size.height - barHeight - 2 * gap - blockGap - 3 * gap) / 6))
+            stripRow = row
+        }
+        return VStack(spacing: blockGap) {
+            KeyStripView(client: client, state: state, rowHeight: stripRow, layout: .padTall)
+            VStack(spacing: gap) {
+                HStack(spacing: gap) {
+                    ForEach(ControllerView.topRow, id: \.0) { control, tag in
+                        key(control, tag: tag).frame(width: unit, height: row)
+                    }
                 }
+                HStack(spacing: gap) {
+                    VirtualStick(controller: controller)
+                        .frame(width: unit * 3 + gap * 2, height: row * 3 + gap * 2)
+                    diamond(unit: unit, row: row)
+                }
+                .frame(height: row * 3 + gap * 2)
             }
-            HStack(spacing: gap) {
-                VirtualStick(controller: controller)
-                    .frame(width: unit * 3 + gap * 2, height: row * 3 + gap * 2)
-                diamond(unit: unit, row: row)
-            }
-            .frame(height: row * 3 + gap * 2)
         }
     }
 
-    /// One band: stick, the seven keys, diamond.
+    /// One band: stick, a middle column (the strip's F bar and key row over the seven
+    /// programmable keys; the F rows take the programmable row's place when opened), diamond.
     private func wideBody(_ size: CGSize) -> some View {
         let row = rowHeight ?? max(28, (size.height - gap * 2) / 3)
         let band = row * 3 + gap * 2
-        let unit = (size.width - band * 2 - gap * 2 - gap * 6) / 7
-        let keyHeight = min(band, unit * 1.2)
+        let middle = size.width - band * 2 - gap * 2
+        let unit = (middle - gap * 6) / 7
+        // Bar + gap + two key rows + gap fill the band exactly.
+        let keyRow = (band - barHeight - 2 * gap) / 2
         return HStack(spacing: gap) {
             VirtualStick(controller: controller).frame(width: band, height: band)
-            HStack(spacing: gap) {
-                ForEach(ControllerView.topRow, id: \.0) { control, tag in
-                    key(control, tag: tag).frame(width: unit, height: keyHeight)
+            VStack(spacing: gap) {
+                KeyStripView(client: client, state: state, rowHeight: keyRow, layout: .padWide, showFExternal: $showF)
+                if !showF {
+                    HStack(spacing: gap) {
+                        ForEach(ControllerView.topRow, id: \.0) { control, tag in
+                            key(control, tag: tag).frame(width: unit, height: keyRow)
+                        }
+                    }
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(width: middle, height: band, alignment: .top)
             diamond(unit: row, row: row).frame(width: band, height: band)
         }
         .frame(height: band)
@@ -208,7 +238,7 @@ private struct PadKey: View {
                     .fill(pressed ? Color.accentColor : Color(.secondarySystemBackground))
                 VStack(spacing: 0) {
                     if let tag {
-                        if geo.size.height >= 40 {
+                        if geo.size.height >= 34 {
                             Text(tag).font(.system(size: 9)).opacity(0.6)
                         }
                         Text(action == .none ? "–" : action.shortLabel)
@@ -217,7 +247,7 @@ private struct PadKey: View {
                             .minimumScaleFactor(0.6)
                     } else if let text {
                         Text(text).font(.body.weight(.medium))
-                        if geo.size.height >= 40, action != .none {
+                        if geo.size.height >= 34, action != .none {
                             Text(action.shortLabel)
                                 .font(.system(size: 9))
                                 .lineLimit(1)

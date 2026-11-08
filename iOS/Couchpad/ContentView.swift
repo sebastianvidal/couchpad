@@ -255,7 +255,7 @@ struct ContentView: View {
                     // Sideways the pad is a short band under the trackpad, thumbs at the
                     // bottom corners, rather than a column beside it.
                     trackpad
-                    ControllerView(controller: controller, rowHeight: wideRowHeight(above), wide: true)
+                    ControllerView(controller: controller, client: client, state: inputState, rowHeight: wideRowHeight(above), wide: true)
                 } else {
                     HStack(spacing: 10) {
                         if settings.trackpadOnRight {
@@ -332,7 +332,7 @@ struct ContentView: View {
             if settings.showController {
                 // Picture on one half, pad on the other: a hand-held console. Upright the
                 // flat half is wide and short; sideways it is a narrow column.
-                ControllerView(controller: controller, wide: !isLandscape)
+                ControllerView(controller: controller, client: client, state: inputState, wide: !isLandscape)
             } else {
                 trackpadPane(picture: false)
                     .overlay(alignment: .bottomTrailing) {
@@ -370,9 +370,9 @@ struct ContentView: View {
                 VStack(spacing: 6) {
                     trackpad
                     if isLandscape {
-                        ControllerView(controller: controller, rowHeight: wideRowHeight(availableHeight), wide: true)
+                        ControllerView(controller: controller, client: client, state: inputState, rowHeight: wideRowHeight(availableHeight), wide: true)
                     } else {
-                        ControllerView(controller: controller, rowHeight: portraitRowHeight)
+                        ControllerView(controller: controller, client: client, state: inputState, rowHeight: portraitRowHeight)
                     }
                     bar(picture: true)
                 }
@@ -520,7 +520,7 @@ struct ContentView: View {
     /// The block under the picture: the key strip, or the pad when the controller is on.
     @ViewBuilder private func controls(rowHeight: CGFloat) -> some View {
         if settings.showController {
-            ControllerView(controller: controller, rowHeight: rowHeight)
+            ControllerView(controller: controller, client: client, state: inputState, rowHeight: rowHeight)
         } else {
             KeyStripView(client: client, state: inputState, rowHeight: rowHeight)
         }

@@ -30,14 +30,25 @@ struct KeyStripView: View {
     /// When the iOS keyboard is out there is no room to grow: the F-bar then swaps the
     /// three main rows for the two F-key rows in the same space instead of adding rows.
     var replacesRowsWhenExpanded = false
-    @State private var showF = false
+    /// `full` is the strip. The pad layouts drop the arrows and space (the stick and the pad
+    /// cover those) and keep the F bar, esc/tab/fn/'/backspace and the modifiers: `padTall`
+    /// as two rows over seven columns, `padWide` as one row of nine.
+    enum Layout { case full, padTall, padWide }
+    var layout: Layout = .full
+    /// The pad owns the F toggle in the wide layout, so it can make room for the F rows.
+    var showFExternal: Binding<Bool>? = nil
+    @State private var showFState = false
+    private var showF: Bool { showFExternal?.wrappedValue ?? showFState }
+    private func setShowF(_ value: Bool) {
+        if let binding = showFExternal { binding.wrappedValue = value } else { showFState = value }
+    }
     /// Where each visible key is, in the strip's coordinate space, for the touch overlay.
     @State private var keyFrames: [Int: CGRect] = [:]
     /// Keys currently under a finger (modifiers show as held instead).
     @State private var pressedKeys = Set<Int>()
 
     private let gap: CGFloat = 4
-    private let columns: CGFloat = 7
+    private var columns: CGFloat { layout == .padWide ? 9 : 7 }
     private let barHeight: CGFloat = 28
 
     private let topRow: [Key] = [
@@ -63,10 +74,24 @@ struct KeyStripView: View {
         [Key(label: "F8", code: 100, small: true), Key(label: "F9", code: 101, small: true), Key(label: "F10", code: 109, small: true), Key(label: "F11", code: 103, small: true), Key(label: "F12", code: 111, small: true), Key(label: "`", code: 50), Key(label: "⇪", code: 57)],
     ]
 
+    /// The modifiers alone fill the pad's seven columns.
+    private var padModifierRow: [Key] { modifierRow.map { var k = $0; k.width = 1.75; return k } }
+    /// One row of nine: the top row with a single-width backspace, then the modifiers.
+    private var padWideRow: [Key] { topRow.map { var k = $0; k.width = 1; return k } + modifierRow }
+    /// The F rows stretched over nine columns.
+    private var padWideFRows: [[Key]] { fRows.map { $0.map { var k = $0; k.width = 9.0 / 7; return k } } }
+
     /// Fixed total height, so the parent can lay out around a block that never changes.
     var height: CGFloat {
-        let rows: CGFloat = (showF && !replacesRowsWhenExpanded) ? 5 : 3
-        return barHeight + gap + rows * rowHeight + (rows - 1) * gap
+        switch layout {
+        case .full:
+            let rows: CGFloat = (showF && !replacesRowsWhenExpanded) ? 5 : 3
+            return barHeight + gap + rows * rowHeight + (rows - 1) * gap
+        case .padTall:
+            return barHeight + gap + 2 * rowHeight + gap
+        case .padWide:
+            return barHeight + gap + (showF ? 2 * rowHeight + gap : rowHeight)
+        }
     }
 
     /// Two F rows standing in for three main rows share their exact height.
@@ -83,6 +108,21 @@ struct KeyStripView: View {
             let unit = (geo.size.width - gap * (columns - 1)) / columns
             VStack(spacing: gap) {
                 fBar
+                switch layout {
+                case .padTall:
+                    if showF {
+                        ForEach(fRows.indices, id: \.self) { row(fRows[$0], unit: unit) }
+                    } else {
+                        row(topRow, unit: unit)
+                        row(padModifierRow, unit: unit)
+                    }
+                case .padWide:
+                    if showF {
+                        ForEach(padWideFRows.indices, id: \.self) { row(padWideFRows[$0], unit: unit) }
+                    } else {
+                        row(padWideRow, unit: unit)
+                    }
+                case .full:
                 if showF && replacesRowsWhenExpanded {
                     ForEach(fRows.indices, id: \.self) { row(fRows[$0], unit: unit, height: swappedRowHeight) }
                 } else {
@@ -106,6 +146,7 @@ struct KeyStripView: View {
                     }
                 }
                 }
+                }
             }
             .coordinateSpace(name: "keys")
             .onPreferenceChange(KeyFramesKey.self) { keyFrames = $0 }
@@ -121,7 +162,7 @@ struct KeyStripView: View {
     private var fBar: some View {
         HStack(spacing: gap) {
             Button {
-                showF.toggle()
+                setShowF(!showF)
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: showF ? "chevron.down" : "chevron.up").font(.caption2)
