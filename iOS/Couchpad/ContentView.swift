@@ -374,14 +374,7 @@ struct ContentView: View {
             let bottom = geo.frame(in: .global).maxY
             let keyboardTop = keyboardTops[sizeKey] ?? (bottom - geo.size.height * 0.40)
             let inset = isLandscape && inputState.keyboardShown ? max(0, bottom - keyboardTop + 8) : 0
-            // A wide picture in a tall window (an unfolded Duo held upright) leaves a band
-            // under the picture: when it fits three rows of keys, the strip lives there instead
-            // of floating. The picture fills the width and the strip takes what is left.
             let availableHeight = geo.size.height - inset - 36 - 6
-            let pictureHeight = screen.videoSize == .zero ? availableHeight : geo.size.width * screen.videoSize.height / screen.videoSize.width
-            let spare = availableHeight - pictureHeight - 6
-            let docked = spare >= 40 + 3 * 36
-            let dockedRow = min(portraitRowHeight, (spare - 40) / 3)
             if settings.showController {
                 // The pad never floats over the picture: the picture gives up the room.
                 // Upright it takes the bottom half (a Game Boy); sideways, a short band under it.
@@ -396,15 +389,12 @@ struct ContentView: View {
                 }
                 .padding(.bottom, inset)
             } else {
+            // Whatever band the picture leaves under itself stays empty until asked: the
+            // compact row docks there on ⌘, the same as everywhere else.
             VStack(spacing: 6) {
                 trackpad
-                if docked {
-                    KeyStripView(client: client, state: inputState, rowHeight: dockedRow,
-                                 replacesRowsWhenExpanded: spare < 40 + 5 * dockedRow + 8)
-                } else if showKeyRow {
-                    keyRow
-                }
-                bar(picture: true, keysToggle: !docked)
+                if showKeyRow { keyRow }
+                bar(picture: true, keysToggle: true)
             }
             .padding(.bottom, inset)
             }
