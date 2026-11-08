@@ -304,19 +304,19 @@ struct ContentView: View {
                 let hingeX = windowSize.width / 2 - frame.minX
                 HStack(spacing: 0) {
                     if settings.trackpadOnRight {
-                        trackpadPane(picture: true).frame(width: hingeX - gap / 2)
+                        trackpad.frame(width: hingeX - gap / 2)
                         Spacer().frame(width: gap)
                         hingeControls(inset: inset)
                     } else {
                         hingeControls(inset: inset)
                         Spacer().frame(width: gap)
-                        trackpadPane(picture: true).frame(width: geo.size.width - hingeX - gap / 2)
+                        trackpad.frame(width: geo.size.width - hingeX - gap / 2)
                     }
                 }
             } else {
                 let hingeY = windowSize.height / 2 - frame.minY
                 VStack(spacing: 0) {
-                    trackpadPane(picture: true).frame(height: hingeY - gap / 2)
+                    trackpad.frame(height: hingeY - gap / 2)
                     Spacer().frame(height: gap)
                     hingeControls(inset: inset)
                 }
@@ -339,7 +339,7 @@ struct ContentView: View {
                         if showKeysPanel { keysPanel }
                     }
             }
-            bar(picture: true, keysToggle: !settings.showController)
+            bar(picture: true, keysToggle: true)
         }
         .padding(.bottom, inset)
     }
@@ -438,12 +438,15 @@ struct ContentView: View {
                     settings.showScreen.toggle()
                 }
             }
-            if picture {
-                if keysToggle {
-                    barButton(showKeysPanel ? "command.square.fill" : "command.square", label: showKeysPanel ? "Hide keys" : "Show keys") {
-                        showKeysPanel.toggle()
-                    }
+            // With the pad on the key strip is gone, so the keys are summoned from the bar
+            // whether or not the picture is up (the panel's own bar has the keyboard button;
+            // a second one here would squeeze the mouse buttons out of an upright phone).
+            if keysToggle || settings.showController {
+                barButton(showKeysPanel ? "command.square.fill" : "command.square", label: showKeysPanel ? "Hide keys" : "Show keys") {
+                    showKeysPanel.toggle()
                 }
+            }
+            if picture {
                 barButton(inputState.keyboardShown ? "keyboard.chevron.compact.down" : "keyboard",
                           label: inputState.keyboardShown ? "Hide keyboard" : "Show keyboard") {
                     inputState.keyboardShown.toggle()
@@ -461,7 +464,7 @@ struct ContentView: View {
                     .foregroundStyle(.green)
                     .accessibilityLabel("Controller connected")
             }
-            if !picture {
+            if !picture, !settings.showController {
                 barButton("questionmark.circle", label: "Setup guide") { showSetup = true }
             }
             barButton("gearshape", label: "Settings") { showSettings = true }
@@ -529,7 +532,14 @@ struct ContentView: View {
             .opacity(0.01)
     }
 
-    private var trackpad: some View { trackpadPane(picture: true) }
+    /// The main pane; with the pad on, the floating key panel lives over it (the pad took
+    /// the strip's place, so this is where the keys go when asked for).
+    private var trackpad: some View {
+        trackpadPane(picture: true)
+            .overlay(alignment: .bottomTrailing) {
+                if showKeysPanel, settings.showController { keysPanel }
+            }
+    }
 
     /// The trackpad, with the Mac's picture underneath when screen mode is on and `picture`
     /// asks for it (the half-open layout shows a second, plain trackpad).
