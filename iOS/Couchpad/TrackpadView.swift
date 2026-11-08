@@ -70,11 +70,11 @@ final class TrackpadUIView: UIView {
         return ScreenGeometry.zoomed(fitRect(videoSize), zoom: zoom, pan: pan)
     }
 
+    /// Back to 1×. Quietly: this runs from `updateUIView`, where a SwiftUI state change would
+    /// be dropped; ContentView resets its own copy when the picture goes away.
     func resetZoom() {
-        guard zoom != 1 || pan != .zero else { return }
         zoom = 1
         pan = .zero
-        onZoom?(zoom, pan)
     }
 
     private var twoTouchPoints: (CGPoint, CGPoint)? {

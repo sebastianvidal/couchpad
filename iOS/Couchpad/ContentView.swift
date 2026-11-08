@@ -126,6 +126,10 @@ struct ContentView: View {
             // With the picture up, the picture is the point: keyboard down until asked for.
             inputState.keyboardShown = !on && !isLandscape
             showKeysPanel = false
+            resetZoom()
+        }
+        .onChange(of: screen.videoSize) { _, size in
+            if size == .zero { resetZoom() }   // the stream stopped; the next picture starts at 1×
         }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
@@ -183,6 +187,12 @@ struct ContentView: View {
             client.send("v 0")
             screen.reset()
         }
+    }
+
+    /// The trackpad forgets its pinch on its own when the picture goes (TrackpadUIView.resetZoom).
+    private func resetZoom() {
+        screenZoom = 1
+        screenPan = .zero
     }
 
     private var keyboardTops: [String: Double] {

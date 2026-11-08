@@ -87,6 +87,12 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
 - Needs the Screen Recording TCC grant for the running binary. After granting, macOS may
   relaunch `/Applications/Couchpad.app` instead of the dev build; make sure only one is
   running (`pgrep -fl Couchpad.app/Contents/MacOS/Couchpad`) or they fight over the port.
+  Unlike Accessibility, this grant does not survive a rebuild of the dev app: after
+  relaunching a fresh `Mac/build/Couchpad.app` the phone shows "Allow Screen Recording…"
+  until the user re-enables it in System Settings. Warn them before relaunching.
+- The display sleeping or locking stops the SCStream with an error; ScreenStreamer keeps the
+  last request (`wanted`) and retries every 2 s and on `screensDidWake` while any phone
+  wants the picture.
 - The Mac app logs a pairing code at launch and another when `--pair` opens the window;
   the second one is the live code.
 - To test the picture on a simulator: `defaults write com.seb.Couchpad showScreen -bool true`

@@ -32,7 +32,7 @@ final class ScreenReceiver: ObservableObject {
 
     /// Throws away the decoder state: the next picture must start with a keyframe.
     func reset() {
-        layer.flush()
+        layer.flushAndRemoveImage()   // no stale picture under the "waiting" placeholder
         format = nil
         waitingForKeyframe = true
         videoSize = .zero
