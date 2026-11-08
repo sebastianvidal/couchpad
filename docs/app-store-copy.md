@@ -187,6 +187,31 @@ display 2007×2853 (`duo-inner-01-portrait` and `duo-inner-02-landscape` unfolde
 simulator, one display at a time: `xcrun simctl io <duo udid> screenshot --display=1 outer.png`
 (`--display=3` for the inner one). Postures come from Device Hub's toolbar.
 
+### Promotional artwork (header and search results)
+
+Optional "creative assets", iOS 27 and later. Upload in App Store Connect: the app → the
+iOS version in the sidebar → **Product Page Information** → **Header and Search Results** tab
+→ **Header** or **Search Results** → drag the file into the well (or **Browse Assets** to pick
+it from Asset Library) → **Save**. They go live with the version, or can be published to the
+live version from Asset Library without a new build.
+
+- `docs/artwork/app-store-header.png`: **Header**, 3840×1646 (21:9, the only allowed size
+  for that ratio), PNG, sRGB, no alpha, about 0.9 MB.
+- `docs/artwork/app-store-search.png`: **Search Results**, 3840×2560 (3:2, the maximum;
+  minimum 1920×1280), PNG, sRGB, no alpha, about 1.5 MB.
+
+Both show the same thing on the site's navy gradient: the 6.3" iPhone upright with the Mac's
+picture over the on-screen controller, and the unfolded iPhone Duo sideways beside it, as one
+group centred with wide margins. No text, logos or icon: the App Store draws the name, icon
+and Get button over the asset. Apple's spec page gives no pixel safe area (that is in its
+design templates) and says to keep the focal point in the centre; check with **Preview** in
+App Store Connect before submitting. Apple also accepts a 16:9 5244×2950 PNG as a universal
+asset for both placements; we don't make one.
+
+Regenerate with `python3 Tools/compose-artwork.py <raw captures> docs/artwork`; it needs
+`pro-pad-picture.png` (6.3" iPhone 17 Pro, portrait) and `duo-open-land-pad-picture.png`
+(Duo inner display, unfolded sideways), both with the controller and the picture on.
+
 ## Export compliance
 
 `ITSAppUsesNonExemptEncryption = NO` and no App Encryption Documentation upload. Reason: all
