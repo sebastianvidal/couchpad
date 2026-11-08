@@ -16,7 +16,7 @@ Gaming on a Mac plugged into the TV? Leave the mouse and keyboard on the desk. C
 
 ## Description [4000]
 
-Couchpad turns your iPhone into a trackpad and keyboard for your Mac or Windows PC.
+Couchpad turns your iPhone into a trackpad, keyboard and game controller for your Mac or Windows PC.
 
 It was made for one situation: the computer is plugged into the TV, you're on the couch across the room, and you don't want a mouse and keyboard on your lap. Open Couchpad, and your phone is both.
 
@@ -32,15 +32,25 @@ TRACKPAD
 
 KEYBOARD
 • The regular iPhone keyboard, typing straight to the computer
-• The keys a phone doesn't have, one tap away: esc, tab, ⌘, ⌥, ⌃, ⇧ and F1–F12, in a row under the trackpad
+• The keys a phone doesn't have, one tap away on the ⌘ button: esc, tab, fn, ⌘, ⌥, ⌃, ⇧ and F1–F12
 • Modifiers toggle and stay held, so ⌘C, ⌥Tab and friends just work
-• Hold-to-press keys for games: keys stay down while your finger does, and the on-screen controller's buttons can be WASD, space, arrows or anything else
+• Keys stay down while your finger does, so holding works in games
+
+ON-SCREEN CONTROLLER
+Tap the d-pad button and the bottom of the phone becomes a gamepad, like a hand-held console under the trackpad:
+• An 8-way stick on the left; diagonals press two keys at once
+• A B X Y on the right, and seven programmable keys above them
+• Every key shows what it does: any keyboard key, left click, right click, or nothing
+• Presets for FPS games (WASD + mouse look), MapleStory and arrow-key games
+• Haptics on every press, and a finger can slide from key to key
+• Upright it takes the bottom half of the screen; sideways it is a short band under the picture
+• The keyboard button swaps it for the iPhone keyboard and back
 
 BUILT FOR GAMES
-Pointer movement is sent as raw mouse motion, which is what games use for camera look, and keys are sent as real presses that stay held. Menus, strategy, point-and-click, launchers, Steam Big Picture: all from the couch.
+Pointer movement is sent as raw mouse motion, which is what games use for camera look, and keys are sent as real presses that stay held. Menus, strategy, shooters, platformers, launchers, Steam Big Picture: anything that takes keyboard and mouse, from the couch.
 
 CONTROLLERS
-Plug a Backbone into the phone, or pair a Bluetooth controller to it, and Couchpad forwards it to the computer as keys and mouse. Every button and stick direction is bindable, with presets for FPS games (WASD + mouse look), MapleStory and arrow-key games. Works with any game that accepts keyboard and mouse.
+Plug a Backbone into the phone, or pair a Bluetooth controller to it, and Couchpad forwards it to the computer as keys and mouse, with the same bindings as the on-screen controller. Every button and stick direction is bindable.
 
 PRIVATE BY DESIGN
 Couchpad collects no data. It asks for Local Network access to find your computer and for the camera only when you scan a pairing code. Only phones you've paired can send input, and you can forget a phone from the computer at any time.
@@ -53,9 +63,17 @@ A Mac (macOS 13 or later) or a Windows 10/11 PC running the free Couchpad compan
 
 ## Keywords [100]
 
-remote,mouse,touchpad,wireless,mac,pc,windows,tv,couch,controller,cursor,wifi,gaming,steam
+remote,mouse,touchpad,wireless,mac,pc,windows,tv,couch,controller,gamepad,cursor,wifi,gaming,steam
 
-(90 characters. Don't repeat the app name or words already in the subtitle; Apple indexes those separately.)
+(98 characters. Don't repeat the app name or words already in the subtitle; Apple indexes those separately.)
+
+## What's New (1.2)
+
+- On-screen controller: tap the d-pad button in the bar for a stick, A B X Y and seven programmable keys under the picture or trackpad, like a hand-held console. Upright it takes the bottom half of the screen, sideways a short band under the picture, and on a half-open iPhone Duo the flat half. Same bindings and presets as a physical controller (FPS, MapleStory, Arrows); every key shows what it does.
+- The ⌘ button in the bar opens the key row (F1–F12, esc, tab, fn and the modifiers) above the controller, or under the picture or trackpad when the controller is off.
+- The keyboard button swaps the controller for the iPhone keyboard and back.
+- The old strip of arrow keys and space is gone: arrows come from the controller's bindings, space from the iPhone keyboard.
+- Works with Mac and Windows. With the Mac's picture on, update the Mac companion to 1.5 for a smooth picture while a game is fullscreen.
 
 ## What's New (1.1)
 
@@ -110,10 +128,10 @@ Everything stays on your local network. No account, no data collected.
 
 • Pairing: does the phone find your computer without typing anything? Does the QR scan work first try?
 • Trackpad feel: pointer speed, tap-to-click, two-finger scroll, tap-then-hold drag. Adjust in Settings (gear) if it's off and tell me what you changed.
-• Keyboard: type a sentence into any app. Try ⌘ + letter shortcuts using the strip above the keyboard.
+• Keyboard: type a sentence into any app. Try ⌘ + letter shortcuts using the key row (⌘ button in the bar).
 • Three-finger swipe up for Mission Control.
 • Leave the app, come back: it should reconnect within a couple of seconds without asking for the code again.
-• Games: use the "F-keys & hold keys" strip for WASD; tell me which games worked and which didn't.
+• Games: turn on the on-screen controller (d-pad button in the bar), pick a preset in Settings → Controller → Bindings; tell me which games worked and which didn't.
 
 Report problems at https://github.com/sebastianvidal/couchpad/issues or via the TestFlight feedback button.
 
