@@ -111,8 +111,10 @@ final class Pacer {
             let now = CFAbsoluteTimeGetCurrent()
             let elapsed = now - last
             last = now
-            // The timer overshot by more than a few ticks: timers are being coalesced.
-            if elapsed > 0.005 { spinUntil = now + 3 }
+            // The timer overshot by more than a few ticks: timers are being coalesced. Spin
+            // for a good while before trusting them again; each probe that fails costs one
+            // 33 ms gap.
+            if elapsed > 0.005 { spinUntil = now + 30 }
 
             lock.lock()
             if elapsed > maxGap { maxGap = elapsed }

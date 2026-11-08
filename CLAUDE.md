@@ -145,6 +145,14 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
 - In zsh, `log` is a shell builtin: use `/usr/bin/log show --process Couchpad`. NSLog
   arguments show as `<private>` there, so for the stats line capture stderr (launch the
   binary directly with `2>file`).
+- macOS Game Mode (automatic for a fullscreen game) coalesces every other process's timers
+  onto a 30 Hz grid, real-time thread policy or not, while still giving it CPU. The host's
+  1 ms datagram pacer then ticked every 33 ms, a frame's chunks arrived in two clumps and the
+  phone nacked the second half: resend storms, ack delays near a second, picture falling
+  apart only in fullscreen. `Pacer.swift` spins to its deadlines once a tick lands late; the
+  stats line's `pacer gap` should read 1 ms, 33 ms means the spin is not engaging. Check
+  `/usr/bin/log show --predicate 'process == "gamepolicyd"'` for "Game mode enabled" when a
+  stream breaks on a game's fullscreen switch. The link itself was fine (ping stayed flat).
 - Windows ignores `v`/`M`; the phone hides the toggle for Windows hosts.
 
 ## Commits
