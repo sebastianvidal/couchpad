@@ -16,7 +16,7 @@ Gaming on a Mac plugged into the TV? Leave the mouse and keyboard on the desk. C
 
 ## Description [4000]
 
-Couchpad turns your iPhone into a trackpad, keyboard and game controller for your Mac or Windows PC.
+Couchpad turns your iPhone into a trackpad, keyboard and game controller for your Mac or Windows PC, with your Mac's screen on the phone if you want it.
 
 It was made for one situation: the computer is plugged into the TV, you're on the couch across the room, and you don't want a mouse and keyboard on your lap. Open Couchpad, and your phone is both.
 
@@ -45,6 +45,9 @@ Tap the d-pad button and the bottom of the phone becomes a gamepad, like a hand-
 • Haptics on every press, and a finger can slide from key to key
 • Upright it takes the bottom half of the screen; sideways it is a short band under the picture
 • The keyboard button swaps it for the iPhone keyboard and back
+
+SEE YOUR SCREEN (MAC)
+Tap the display button and your Mac's screen appears on the phone, above the controller or under your finger on the trackpad. Hardware HEVC at up to 60 frames a second over your Wi‑Fi, with parity and retransmission so a dropped packet costs a frame, not a stall. Touch the picture to point there, pinch to zoom. On a half-open foldable the picture takes one half and the controls the other. Needs the Mac companion 1.5 or later for a smooth picture while a game is fullscreen.
 
 BUILT FOR GAMES
 Pointer movement is sent as raw mouse motion, which is what games use for camera look, and keys are sent as real presses that stay held. Menus, strategy, shooters, platformers, launchers, Steam Big Picture: anything that takes keyboard and mouse, from the couch.
