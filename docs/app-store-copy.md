@@ -124,6 +124,20 @@ You'll need the free companion app on the computer, from https://sebastianvidal.
 
 Everything stays on your local network. No account, no data collected.
 
+## TestFlight — What to Test (1.2)
+
+This build adds an on-screen game controller and replaces the old key strip with a compact key row. Needs Mac companion 1.5 if you use the picture (menu-bar icon → check version; download at https://sebastianvidal.github.io/couchpad/).
+
+• Controller on/off: tap the d-pad button in the bar. Upright, does the controller take the bottom half with the picture or trackpad above it? Sideways, a short band under the picture? Half-open iPhone Duo: picture on one half, controller on the other?
+• Stick: move in all eight directions; diagonals should press two keys (WASD in the FPS preset). Does the knob follow your thumb, and does the direction change feel right (a tick each change)?
+• Buttons: hold A B X Y and the seven keys above; slide a finger from one key to the next (the first releases, the next presses). Press the stick and a button at the same time.
+• Bindings: Settings → Controller → Bindings. Switch presets (FPS, MapleStory, Arrows) and change one key; each on-screen key should show its new binding right away.
+• Key row: tap ⌘ in the bar. The F1–F12 bar plus esc, tab, fn and the modifiers should appear above the controller (or under the picture with the controller off) without the stick or buttons moving. Hold shift and press a key; tap Release. Open F1–F12 and back.
+• Keyboard: tap the keyboard button in the bar. The controller should give way to the iPhone keyboard with the key row above it, and come back when you hide the keyboard. Type a sentence.
+• Rotate the phone with the controller on; it must keep working without toggling it off and on.
+• Mac picture + fullscreen game (Mac companion 1.5): go fullscreen in a game; the picture should stay smooth. Tell me the game and whether it got worse than windowed.
+• Which games worked with which preset, and what you had to rebind.
+
 ## TestFlight — What to Test (build 1)
 
 • Pairing: does the phone find your computer without typing anything? Does the QR scan work first try?
