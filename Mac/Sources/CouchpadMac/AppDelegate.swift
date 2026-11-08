@@ -17,7 +17,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var server: Server?
     private let pairingWindow = PairingWindow()
 
+    /// Keeps the process out of App Nap and timer coalescing: a menu-bar app with no window
+    /// looks idle to macOS, and a napping host paces its datagrams on a lazy clock.
+    private var activity: NSObjectProtocol?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical],
+                                                         reason: "Forwarding input and streaming the screen")
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "cursorarrow.rays", accessibilityDescription: "Couchpad")
 

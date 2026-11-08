@@ -69,7 +69,10 @@ final class Server {
     /// Datagrams queued per phone before the oldest are thrown away (a keyframe and change).
     private let maxOutgoing = 400
     private let port: UInt16
-    private let queue = DispatchQueue(label: "couchpad.server")
+    // User-interactive: acks, the 1 ms pacer and key injection must keep their turn while
+    // a fullscreen game pins every core. At default priority the pacer fell behind and
+    // released datagrams late and in bursts, which the Wi-Fi then dropped.
+    private let queue = DispatchQueue(label: "couchpad.server", qos: .userInteractive)
     private let onChange: () -> Void
     private var sessions: [ObjectIdentifier: Session] = [:]
 

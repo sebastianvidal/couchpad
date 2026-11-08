@@ -31,7 +31,7 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     /// the phone's absolute pointer. Set once the stream starts; the main display before that.
     private(set) var displayBounds = CGDisplayBounds(CGMainDisplayID())
 
-    private let queue = DispatchQueue(label: "couchpad.screen")
+    private let queue = DispatchQueue(label: "couchpad.screen", qos: .userInteractive)
     private var stream: SCStream?
     private var encoder: VTCompressionSession?
     private var hevc = true
@@ -60,6 +60,9 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     /// use. Every lost frame the phone reports cuts the share; quiet stretches restore it.
     private var baseBitrate = 0
     private var rateShare = 1.0
+    /// The share in use when loss last struck: recovery heads back to just under it fast,
+    /// then creeps above it slowly, instead of climbing straight back into the same wall.
+    private var lossShare = 1.0
     private var lastLossAt = 0.0
     private var recentLosses = 0
     private var lastCutAt = 0.0
@@ -125,6 +128,7 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
             guard self.recentLosses >= 3, now - self.lastCutAt > 1 else { return }
             self.lastCutAt = now
             self.recentLosses = 0
+            self.lossShare = self.rateShare
             self.rateShare = max(0.25, self.rateShare * 0.75)
             self.applyBitrate()
         }
@@ -273,10 +277,18 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         // last frame the phone actually got.
         if !forceKeyframe, isCongested?() == true { skipped += 1; skippedTotal += 1; return }
         let now = CFAbsoluteTimeGetCurrent()
-        if rateShare < 1, now - lastLossAt > 3, now - lastRaiseAt > 3 {
-            lastRaiseAt = now
-            rateShare = min(1, rateShare * 1.2)
-            applyBitrate()
+        if rateShare < 1, now - lastLossAt > 3 {
+            // Quick back up to 85% of where it last broke; past that, 5% every 10 s.
+            let ceiling = lossShare * 0.85
+            if rateShare < ceiling, now - lastRaiseAt > 3 {
+                lastRaiseAt = now
+                rateShare = min(ceiling, rateShare * 1.2)
+                applyBitrate()
+            } else if rateShare >= ceiling, now - lastRaiseAt > 10 {
+                lastRaiseAt = now
+                rateShare = min(1, rateShare + 0.05)
+                applyBitrate()
+            }
         }
         encode(buffer, now: now)
     }
