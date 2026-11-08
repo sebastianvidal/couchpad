@@ -324,7 +324,13 @@ struct ContentView: View {
     /// on demand, the same as the screen layout.
     private func hingeControls(inset: CGFloat) -> some View {
         VStack(spacing: 6) {
-            if settings.showController {
+            if settings.showController, inputState.keyboardShown {
+                // Typing: the same fixed-height key row as upright, pushed down to sit just
+                // above the keyboard with the bar. Filling what the keyboard leaves squashed
+                // the row and the bar into each other.
+                Spacer(minLength: 0)
+                ControllerView(controller: controller, client: client, state: inputState, rowHeight: portraitRowHeight, showKeys: showKeyRow)
+            } else if settings.showController {
                 // Picture on one half, pad on the other: a hand-held console. Upright the
                 // flat half is wide and short; sideways it is a narrow column.
                 ControllerView(controller: controller, client: client, state: inputState, wide: !isLandscape, showKeys: showKeyRow)
