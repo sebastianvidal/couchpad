@@ -11,15 +11,19 @@ between, on your Wi-Fi or through your VPN.
 **Status (November 2026)**
 - **iPhone:** public **TestFlight beta** — https://testflight.apple.com/join/kY67K51G — ahead
   of a free App Store release. Supports iPhone Duo, folded or unfolded, in both orientations.
-- **Mac:** **1.4 released**, signed and notarized —
-  [download](https://github.com/sebastianvidal/couchpad/releases/latest). 1.4 keeps the
-  picture smooth when a phone's connection drops and comes back, and brings it back after
-  the display sleeps; 1.3 wakes a sleeping display on input from the phone and opens its
+- **Mac:** **1.5 released**, signed and notarized —
+  [download](https://github.com/sebastianvidal/couchpad/releases/latest). 1.5 keeps the
+  picture smooth when a game goes fullscreen (see [What's new in Mac 1.5](#whats-new-in-mac-15));
+  1.4 keeps it smooth when a phone's connection drops and comes back, and brings it back
+  after the display sleeps; 1.3 wakes a sleeping display on input from the phone and opens its
   menu instantly; 1.2 streams the
   Mac's screen to the phone over encrypted UDP (below) on top of 1.1's encrypted sessions and
   hardened pairing; it needs the current iPhone build.
 - **Windows:** compiles, not yet run on a real Windows machine (see the appendix).
-- **New:** the Mac's screen on the phone. Turn it on with the display icon next to the gear;
+- **New:** an [on-screen controller](#on-screen-controller): a stick, A B X Y and seven
+  programmable keys under the picture or trackpad, like a hand-held console. Turn it on with
+  the d-pad button in the bar. Works with Mac and Windows hosts.
+- **Also new:** the Mac's screen on the phone. Turn it on with the display icon next to the gear;
   the picture fills the trackpad, which keeps working as a trackpad (or, as an option, the
   pointer jumps to where you touch), with the compact key row (F keys, esc, tab, fn, the
   modifiers) one tap away under the picture. Hardware HEVC at
@@ -29,17 +33,28 @@ between, on your Wi-Fi or through your VPN.
   trackpad and keys on the flat one. Needs Screen Recording access for Couchpad on the Mac (it
   asks the first time). Fine for desktop use on a decent Wi-Fi; on a lossy mesh link it still
   hiccups more than a game wants. Mac only so far.
-- **Also new:** confirmed working **over cellular through Tailscale**, screen included, with
+- **Also:** confirmed working **over cellular through Tailscale**, screen included, with
   no code changes: the phone just needs a route to the Mac. Setup below.
 
 Site: https://sebastianvidal.github.io/couchpad/
+
+## What's new in Mac 1.5
+
+The picture stays smooth when a game goes fullscreen. macOS Game Mode, which turns on with
+a fullscreen game, bunches a background app's timers onto a 30 Hz grid; the host's packet
+pacer was one of them, so the stream broke up into resend storms and second-long stalls the
+moment a game took the screen. The pacer now runs on a real-time thread and catches up on
+its own when its timers come late. Also: after a loss the bitrate climbs quickly back to just
+under where it last broke, then creeps up, instead of running straight back into the same
+wall; and the host opts out of App Nap.
+Nothing to set up; install 1.5 over 1.4.
 
 ## Get started
 
 1. **iPhone:** install [TestFlight](https://apps.apple.com/app/testflight/id899247664), then
    open https://testflight.apple.com/join/kY67K51G on the phone and tap Install. Allow
    **Local Network** when asked, otherwise the app can't find your computer.
-2. **Mac:** download `Couchpad-1.4.dmg` from
+2. **Mac:** download `Couchpad-1.5.dmg` from
    [Releases](https://github.com/sebastianvidal/couchpad/releases/latest), drag Couchpad to
    Applications, open it. A cursor icon appears in the menu bar. Grant **Accessibility** when
    macOS asks (System Settings → Privacy & Security → Accessibility); that permission is what
@@ -64,12 +79,12 @@ carries the Mac's address, or type it into Settings → Connection on the phone.
 | Three-finger swipe         | Up: Mission Control · Down: App Exposé · Left/right: switch Spaces (Windows: Task View / desktop / virtual desktops) |
 | Left / Right buttons       | Hold the mouse button                    |
 | iOS keyboard               | Typing, backspace, return as real key presses |
-| Key row (⌘ button in the bar) | esc, tab, F1–F12: key down while touched, up on release. Docks under the picture or trackpad (or inside the on-screen controller). Space comes from the iOS keyboard, arrows from the on-screen controller's bindings |
+| Key row (⌘ button in the bar) | An F1–F12 bar, then esc, tab, fn, ⇧ ⌃ ⌥ ⌘. Keys go down while touched and up on release. Above the on-screen controller when it is on, docked under the picture or trackpad when it is off. The F1–F12 bar swaps the row for two rows of function keys; while a modifier is held it also shows Release |
 | ⇧ ⌃ ⌥ ⌘ fn                 | Toggle: held until tapped again; typed letters become shortcuts (⌘C etc.) |
 | On a Windows host          | The same keys show as Ctrl / Alt / Win; fn is hidden |
-| Keyboard button            | Hide / show the iOS keyboard to enlarge the trackpad |
+| Keyboard button (bar)      | Show / hide the iOS keyboard. Space and typing come from it. With the on-screen controller on, the keyboard takes the pad's place (the key row stays above it) until you put it away |
 | Backbone / Bluetooth controller | Forwarded as keys and mouse. Every button and stick direction is bindable in Settings → Controller → Bindings; presets: FPS (WASD + mouse look), MapleStory (arrows, alt jump, ctrl attack), Arrows |
-| On-screen controller (d-pad button in the bar) | Under the picture or trackpad like a hand-held console: an 8-way stick on the left, A B X Y on the right, and seven programmable keys (L1 L2 L3 menu options R1 R2) along the top, or between them in one short band sideways. Slide a finger from key to key like on the key row. Same bindings and presets as a physical controller; each key shows what it does |
+| On-screen controller (d-pad button in the bar) | A stick, A B X Y and seven programmable keys, under the picture or trackpad. See [On-screen controller](#on-screen-controller) |
 
 Pointer speed, scroll speed, natural scrolling, tap-to-drag, three-finger swipes and
 controller look speed are in the gear menu.
@@ -77,6 +92,31 @@ controller look speed are in the gear menu.
 A controller attached to the iPhone, or the on-screen one, works with any game that
 accepts keyboard and mouse, which is nearly all of them on a Mac. The computer does not see a gamepad: macOS has no
 public API for a virtual one.
+
+## On-screen controller
+
+Tap the d-pad button in the bar (or Settings → Controller → On-screen controller) and the
+phone becomes a hand-held console. Pictures and details:
+https://sebastianvidal.github.io/couchpad/controller.html
+
+- **Layout.** An 8-way stick on the left (diagonals press two keys at once), A B X Y in a
+  diamond on the right, and seven programmable keys above them: the pad's L1, L2, L3, menu,
+  options, R1 and R2. Every key shows what it is bound to. Each press gives a light tap of
+  haptics, and a finger can slide from key to key without lifting.
+- **Upright** the pad takes the bottom half of the screen, under the picture or trackpad.
+  **Sideways** it is a short band under the picture: stick, keys, diamond. **Half open on an
+  iPhone Duo** it fills the flat half and the picture sits on the upright one.
+- **Aim** with the picture or trackpad above it: it still moves the mouse, sent as raw
+  motion, which is what games use for camera look.
+- **Bindings** are the same as a physical controller's, in Settings → Controller → Bindings.
+  Presets: FPS (stick is WASD, A space, B ctrl, R2/L2 left/right click), MapleStory (arrows,
+  alt jump, ctrl attack), Arrows (menus, launchers, 2D games). Any key can be a keyboard key,
+  left click, right click, or nothing.
+- **Other keys.** The bar's ⌘ button opens the key row (F1–F12, esc, tab, fn and the
+  modifiers) above the pad. Arrows come from the bindings, space and typing from the iOS
+  keyboard: the bar's keyboard button swaps the pad for the keyboard and back.
+- Works with Mac and Windows hosts; it only sends keys and mouse. A Backbone or Bluetooth
+  controller attached to the phone uses the same bindings.
 
 ## Pairing
 
@@ -152,7 +192,7 @@ MIT. See `LICENSE`.
 ## Appendix A: Build from source
 
 ```
-iOS/       Xcode project (SwiftUI). Trackpad on top, the iOS keyboard below, plus the keys it lacks.
+iOS/       Xcode project (SwiftUI). Trackpad or the Mac's picture, the on-screen controller, the keys the iOS keyboard lacks.
 Mac/       SwiftPM menu-bar app. Advertises _couchpad._tcp on port 48123, injects CGEvents.
 Windows/   .NET 8 tray app. Same protocol and port, injects via SendInput.
 Shared/    SecureChannel.swift, the wire protocol, symlinked into the Mac and iOS trees.

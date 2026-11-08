@@ -39,7 +39,7 @@
 
   <h2>What to expect</h2>
   <ul>
-    <li><strong>Input feels local.</strong> Touches and keys are a few bytes each; a cellular round trip adds tens of milliseconds, which you will not notice typing or clicking.</li>
+    <li><strong>Input feels local.</strong> Touches and keys are a few bytes each; a cellular round trip adds tens of milliseconds, which you will not notice typing, clicking or on the <a href="controller.html">on-screen controller</a>.</li>
     <li><strong>The picture lags a little more than at home.</strong> The stream was tuned for a Wi‑Fi round trip of about 10 ms and backs off when the link is slower or loses packets, so over cellular you will see fewer frames and a softer image. It is fine for desktop work and finding things; it is not yet a gaming link from a café. This is tuning, and it is being worked on.</li>
     <li><strong>UDP works through Tailscale.</strong> Frames go as datagrams, as at home. When Tailscale cannot make a direct connection it falls back to one of its relays, which adds latency; Couchpad notices nothing except a slower link, and the traffic is encrypted either way.</li>
     <li><strong>The computer must be awake.</strong> A sleeping Mac is not on any network. Set it to never sleep while plugged in (System Settings → Energy, or Displays → Advanced → "Prevent automatic sleeping on power adapter when the display is off"), or use something that wakes it. Couchpad cannot wake it for you.</li>

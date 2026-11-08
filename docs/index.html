@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Couchpad — your iPhone as a trackpad and keyboard</title>
-<meta name="description" content="Your iPhone as a trackpad and keyboard for your Mac or Windows PC, with the Mac's screen on the phone. On your Wi-Fi or from anywhere through your own VPN. Free, open source, no accounts.">
+<title>Couchpad — your iPhone as a trackpad, keyboard and controller</title>
+<meta name="description" content="Your iPhone as a trackpad, keyboard and game controller for your Mac or Windows PC, with the Mac's screen on the phone. On your Wi-Fi or from anywhere through your own VPN. Free, open source, no accounts.">
 <meta property="og:title" content="Couchpad">
 <meta property="og:description" content="Your iPhone as a trackpad and keyboard for your Mac or Windows PC, with the Mac's screen on the phone. Free and open source.">
 <meta property="og:image" content="https://sebastianvidal.github.io/couchpad/icon.png">
@@ -21,35 +21,35 @@
     </div>
   </header>
 
-  <p class="status"><span class="dot"></span> <strong>Beta.</strong> iPhone app in public TestFlight ahead of its free App Store release. Mac companion 1.2 is out.</p>
+  <p class="status"><span class="dot"></span> <strong>Beta.</strong> iPhone app in public TestFlight ahead of its free App Store release. Mac companion 1.5 is out.</p>
 
   <section class="hero-row">
     <div class="hero-text">
-      <p class="hero">The computer is plugged into the TV, you're on the couch, and your phone is the mouse and keyboard. Turn on the screen and it's the monitor too.</p>
+      <p class="hero">The computer is plugged into the TV, you're on the couch, and your phone is the mouse, the keyboard and the controller. Turn on the screen and it's the monitor too.</p>
       <p>No account, no server, nothing to configure. Pair once by scanning a code; after that the phone finds the computer on its own, and everything between them is encrypted. Put both on a VPN and it works from anywhere.</p>
       <div class="buttons">
         <a class="btn" href="https://testflight.apple.com/join/kY67K51G">Get the iPhone beta</a>
-        <a class="btn secondary" href="https://github.com/sebastianvidal/couchpad/releases/latest/download/Couchpad-1.4.dmg">Download for Mac</a>
+        <a class="btn secondary" href="https://github.com/sebastianvidal/couchpad/releases/latest/download/Couchpad-1.5.dmg">Download for Mac</a>
         <a class="btn secondary" href="https://github.com/sebastianvidal/couchpad">Source on GitHub</a>
       </div>
     </div>
     <figure class="shot">
-      <img src="phone.png" alt="Couchpad on an iPhone: a large trackpad area, Left and Right mouse buttons, a strip with esc, tab, modifier and arrow keys, and the iPhone keyboard.">
+      <img src="screenshots/controller-portrait.png" alt="Couchpad on an iPhone held upright: the trackpad fills the top half; the on-screen controller fills the bottom half with seven programmable keys (q, right click, shift, esc, tab, e, left click), a stick and the A B X Y buttons; a bar with the screen, keys, keyboard and controller buttons and Left and Right mouse buttons runs along the bottom.">
     </figure>
   </section>
 
   <div class="features">
     <div>
       <h3>Trackpad and keyboard</h3>
-      <p>Tap, two-finger scroll, drag, right-click, three-finger swipes. The iPhone keyboard plus the keys it lacks, in one row under the trackpad: esc, tab, ⌘ ⌥ ⌃ ⇧, F1–F12. Modifiers stay held so ⌘C just works.</p>
+      <p>Tap, two-finger scroll, drag, right-click, three-finger swipes. The iPhone keyboard plus the keys it lacks, one tap away on the ⌘ button: esc, tab, fn, ⇧ ⌃ ⌥ ⌘, F1–F12. Modifiers stay held so ⌘C just works.</p>
     </div>
     <div>
-      <h3>Made for games</h3>
-      <p>An on-screen controller whose buttons stay pressed while your finger is on them (WASD, arrows, space, anything), raw mouse movement for camera look, and any Backbone or Bluetooth controller forwarded as keys and mouse, fully rebindable.</p>
+      <h3>A controller on screen</h3>
+      <p>A stick, A B X Y and seven programmable keys under the picture, like a hand-held console. Presets for FPS, MapleStory and arrow-key games, or bind any key yourself. A Backbone or Bluetooth controller works the same way. <a href="controller.html">See it →</a></p>
     </div>
     <div>
       <h3>The Mac's screen on the phone</h3>
-      <p>Hardware HEVC at up to 60 fps, sent so a lost packet skips a frame instead of freezing. The trackpad keeps working on top of the picture. <a href="screen.html">How it works →</a></p>
+      <p>Hardware HEVC at up to 60 fps, sent so a lost packet skips a frame instead of freezing. The trackpad keeps working on top of the picture, and since Mac 1.5 the picture stays smooth when a game goes fullscreen. <a href="screen.html">How it works →</a></p>
     </div>
     <div>
       <h3>From anywhere</h3>
@@ -60,7 +60,7 @@
   <h2 id="get">Get Couchpad</h2>
   <table>
     <tr><th>iPhone</th><td><a class="btn small" href="https://testflight.apple.com/join/kY67K51G">Join the TestFlight beta</a> — free, iOS 17 or later. Install Apple's TestFlight app, open the link on your phone, tap Install.</td></tr>
-    <tr><th>Mac</th><td><a class="btn small" href="https://github.com/sebastianvidal/couchpad/releases/latest/download/Couchpad-1.4.dmg">Download Couchpad 1.4</a> — free, signed and notarized, macOS 13 or later. Lives in the menu bar; needs Accessibility permission once.</td></tr>
+    <tr><th>Mac</th><td><a class="btn small" href="https://github.com/sebastianvidal/couchpad/releases/latest/download/Couchpad-1.5.dmg">Download Couchpad 1.5</a> — free, signed and notarized, macOS 13 or later. Lives in the menu bar; needs Accessibility permission once. New in 1.5: a smooth picture while a game is fullscreen (macOS Game Mode used to break up the stream).</td></tr>
     <tr><th>Windows</th><td>Free, builds from source with the .NET 8 SDK. <a href="https://github.com/sebastianvidal/couchpad#windows">Instructions.</a> <em>Looking for its first real-world test report.</em></td></tr>
   </table>
 
@@ -71,7 +71,7 @@
   <p>Only a phone you paired can send input, and you can forget it any time. The pairing code lives for a minute and allows one guess per connection. Every session starts with a fresh key exchange and is encrypted end to end; the phone never sends its token or the code, it proves it holds them. There is no account, no cloud and no relay. <a href="https://github.com/sebastianvidal/couchpad#security">The full design</a>, and the code, are open to check. Couchpad collects no data: <a href="privacy.html">privacy policy</a>.</p>
 
   <footer>
-    <a href="screen.html">Screen on the phone</a> · <a href="remote.html">Away from home</a> · <a href="https://github.com/sebastianvidal/couchpad#gestures">All gestures and keys</a> · <a href="privacy.html">Privacy</a> · <a href="https://github.com/sebastianvidal/couchpad/issues">Issues</a><br>
+    <a href="screen.html">Screen on the phone</a> · <a href="controller.html">On-screen controller</a> · <a href="remote.html">Away from home</a> · <a href="https://github.com/sebastianvidal/couchpad#gestures">All gestures and keys</a> · <a href="privacy.html">Privacy</a> · <a href="https://github.com/sebastianvidal/couchpad/issues">Issues</a><br>
     Made by Sebastian Vidal. Open source, MIT license.
   </footer>
 </main>

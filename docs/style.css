@@ -58,6 +58,10 @@ a { color: #8f98ff; }
 .features { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 24px; }
 .features h3 { margin: 0 0 4px; font-size: 16px; }
 .features p { margin: 0; font-size: 15px; color: var(--muted); }
+/* Screenshot pairs and a full-width landscape shot (controller page) */
+.shots { display: flex; flex-wrap: wrap; justify-content: center; gap: 24px; margin: 24px 0 8px; }
+.shot.land { width: 100%; max-width: 620px; margin: 24px auto 8px; }
+.shot.land img { border-radius: 16px; }
 @media (max-width: 640px) {
   .hero-row { flex-direction: column; }
   .shot { width: 200px; margin: 0 auto; }
