@@ -17,6 +17,8 @@ final class Server {
         /// Screen streaming state: whether this phone asked for the picture, how many bytes
         /// are queued in the socket, and whether we owe it a keyframe after dropping frames.
         var wantsScreen = false
+        /// The size and rate this phone asked for; the stream serves the largest of them all.
+        var screenRequest = (maxWidth: 0, maxHeight: 0, fps: 0)
         var inflight = 0
         var needsKeyframe = true
         /// Frames sent but not yet acknowledged by the phone (`v a <pts>`), oldest first:
@@ -362,12 +364,14 @@ final class Server {
         case "1":
             guard parts.count >= 5, let w = Int(parts[2]), let h = Int(parts[3]), let fps = Int(parts[4]), w > 0, h > 0 else { return }
             session.wantsScreen = true
+            session.screenRequest = (w, h, fps)
+            NSLog("Screen %@: wants %dx%d at %d fps", String(describing: session.connection.endpoint), w, h, fps)
             session.needsKeyframe = true
             session.unacked.removeAll()
-            ScreenStreamer.shared.start(maxWidth: w, maxHeight: h, fps: fps)
+            syncScreen()
         case "0":
             session.wantsScreen = false
-            stopScreenIfUnwanted()
+            syncScreen()
         case "k":
             session.needsKeyframe = true
             ScreenStreamer.shared.requestKeyframe()
@@ -428,8 +432,16 @@ final class Server {
         session.resent = 0
     }
 
-    private func stopScreenIfUnwanted() {
-        if !sessions.values.contains(where: { $0.wantsScreen }) { ScreenStreamer.shared.stop() }
+    /// One stream serves every phone, at the largest size any of them asked for: each
+    /// phone's picture is letterboxed anyway, and taking the latest request instead would
+    /// have two phones with different panes restart the stream at each other's size, over
+    /// and over (every restart costs an encoder and a keyframe). Stops when nobody wants it.
+    private func syncScreen() {
+        let wanting = sessions.values.filter { $0.wantsScreen }
+        guard !wanting.isEmpty else { ScreenStreamer.shared.stop(); return }
+        ScreenStreamer.shared.start(maxWidth: wanting.map(\.screenRequest.maxWidth).max() ?? 0,
+                                    maxHeight: wanting.map(\.screenRequest.maxHeight).max() ?? 0,
+                                    fps: wanting.map(\.screenRequest.fps).max() ?? 0)
     }
 
     private func broadcast(_ frame: ScreenPacket.Frame) {
@@ -521,7 +533,7 @@ final class Server {
         // Never leave a key or mouse button stuck down when the phone goes away.
         if session.authenticated { Injector.shared.releaseAll() }
         session.wantsScreen = false
-        stopScreenIfUnwanted()
+        syncScreen()
         report()
     }
 

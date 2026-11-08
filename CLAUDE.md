@@ -123,6 +123,14 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   The user's Duo on the Google Wifi mesh loses bursts of 6+ packets a few times a minute at
   any rate; ICMP sees 1% random loss. Parity groups are interleaved (chunk i in group i mod
   G) so a burst spreads across groups.
+- One stream serves every phone, at the largest size any of them asked for (`syncScreen` in
+  Server.swift). Before that, two connected clients with different panes (the user's phone
+  plus a simulator) restarted the stream at each other's size every few seconds, which felt
+  like terrible performance. Never leave a simulator connected to the host while the user
+  tests on their phone. The host logs each request as `Screen …: wants WxH at N fps`.
+- In zsh, `log` is a shell builtin: use `/usr/bin/log show --process Couchpad`. NSLog
+  arguments show as `<private>` there, so for the stats line capture stderr (launch the
+  binary directly with `2>file`).
 - Windows ignores `v`/`M`; the phone hides the toggle for Windows hosts.
 
 ## Commits
