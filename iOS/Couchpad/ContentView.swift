@@ -459,7 +459,9 @@ struct ContentView: View {
                     showKeyRow.toggle()
                 }
             }
-            if picture {
+            // With the pad on, the key row's F bar has the keyboard button; a second one here
+            // squeezes the mouse buttons out of an upright phone.
+            if picture, !settings.showController {
                 barButton(inputState.keyboardShown ? "keyboard.chevron.compact.down" : "keyboard",
                           label: inputState.keyboardShown ? "Hide keyboard" : "Show keyboard") {
                     inputState.keyboardShown.toggle()
