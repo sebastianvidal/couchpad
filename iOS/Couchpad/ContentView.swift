@@ -73,7 +73,9 @@ struct ContentView: View {
         )
         .background(HingeObserver(partlyOpen: $hingePartlyOpen))
         // The picture is the point of screen mode: the clock and the signal bars can go.
-        .statusBarHidden(screenOn && client.isConnected)
+        // The clock and the signal bars never earn their strip here: the same full window
+        // whether the picture is on or off, so nothing moves when it is toggled.
+        .statusBarHidden(true)
         .background(
             // Measures the whole window, ignoring the keyboard and the safe areas, so the
             // portrait/landscape decision never flips because a keyboard came up.
@@ -165,15 +167,13 @@ struct ContentView: View {
     private var screenOn: Bool { settings.showScreen && screenAvailable }
     private var hingeLayout: Bool { screenOn && client.isConnected && hingePartlyOpen }
 
-    /// Safe-area edges the layout takes for itself in screen mode. The iPhone Duo keeps its
-    /// status bar in a panel along one long edge (84pt on the folded display), and that panel
-    /// stays reserved after `statusBarHidden` empties it, leaving a black band beside the
-    /// picture. An inset on one horizontal edge with none on the other is that panel: nothing
-    /// is in it any more, so the picture and the bar spread into it. A notch or Dynamic Island
-    /// insets both sides alike and is never touched; so is the top edge (the bottom one is
-    /// taken sideways, see `body`).
+    /// Safe-area edges the layout takes for itself. The iPhone Duo keeps its status bar in a
+    /// panel along one long edge (84pt on the folded display), and that panel stays reserved
+    /// after `statusBarHidden` empties it, leaving a black band beside the trackpad. An inset
+    /// on one horizontal edge with none on the other is that panel: nothing is in it any
+    /// more, so the layout spreads into it. A notch or Dynamic Island insets both sides alike
+    /// and is never touched; so is the top edge (the bottom one is taken sideways, see `body`).
     private var panelEdges: Edge.Set {
-        guard screenOn, client.isConnected else { return [] }
         if safeInsets.leading > 0, safeInsets.trailing == 0 { return .leading }
         if safeInsets.trailing > 0, safeInsets.leading == 0 { return .trailing }
         return []
@@ -217,24 +217,20 @@ struct ContentView: View {
         return min(58, max(42, unit * 0.65))
     }
 
-    /// The bar sits at the bottom, where the screen layout keeps its own, so switching the
-    /// picture on and off doesn't move it.
+    /// Same skeleton as the screen layout (trackpad above, the bar at the bottom, 6pt apart)
+    /// with the key strip in between, so toggling the picture moves nothing but the keys.
     private var portraitBody: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             trackpad
-            if !inputState.keyboardShown {
-                mouseButtons.frame(height: 44)
-            }
             KeyStripView(client: client, state: inputState, rowHeight: portraitRowHeight)
-                .background(keyInput)   // zero footprint: it must not add height below the keys
-            plainBar
+            bar(picture: false)
         }
         .padding(.top, 4)
     }
 
-    /// Trackpad on one side (your choice), everything else in a column on the other. The key
-    /// rows stretch to use the column's full height, so with the iOS keyboard hidden the keys
-    /// are large.
+    /// Trackpad on one side (your choice), the keys in a column on the other. The key rows
+    /// stretch to use the column's full height, so with the iOS keyboard hidden the keys are
+    /// large.
     /// Nothing here moves for the keyboard: the whole body ignores it, and instead everything
     /// is inset by the keyboard's height while it is up, so the bar at the bottom sits just
     /// above the keyboard (as in the screen layout) and the key block is sized to end on the
@@ -256,7 +252,7 @@ struct ContentView: View {
                         landscapeControls(width: max(300, geo.size.width * 0.42), above: above)
                     }
                 }
-                plainBar
+                bar(picture: false)
             }
             .padding(.bottom, inset)
         }
@@ -264,26 +260,15 @@ struct ContentView: View {
     }
 
     /// The key block is anchored at the top with fixed row heights, so the keys never move
-    /// when the keyboard comes up; the mouse buttons take the space below them while the
-    /// keyboard is hidden.
+    /// when the keyboard comes up.
     private func landscapeControls(width: CGFloat, above: CGFloat) -> some View {
-        // Rows fill the column exactly: F-key bar + gap + 3 rows + 2 gaps = `above`.
-        let rowHeight = min(80, max(36, (above - 28 - 3 * 4) / 3))
-        // On a large display (an unfolded iPhone Duo) the rows hit their cap and leave room
-        // at the bottom of the column; the mouse buttons take it rather than leaving a hole.
-        let spare = above - (28 + 4 + 3 * rowHeight + 2 * 4) - 6
+        // Rows fill the column: F-key bar + gap + 3 rows + 2 gaps = `above`, capped so the
+        // keys stay keys on a large display (an unfolded iPhone Duo).
+        let rowHeight = min(120, max(36, (above - 28 - 3 * 4) / 3))
         return VStack(spacing: 6) {
             KeyStripView(client: client, state: inputState, rowHeight: rowHeight,
                          replacesRowsWhenExpanded: inputState.keyboardShown)
-                .background(keyInput)   // zero footprint: it must not add height below the keys
-            if !inputState.keyboardShown {
-                mouseButtons.frame(maxHeight: .infinity)
-            } else {
-                if spare >= 56 {
-                    mouseButtons.frame(height: spare)
-                }
-                Spacer(minLength: 0)   // keeps the column pinned to the top
-            }
+            Spacer(minLength: 0)   // keeps the column pinned to the top
         }
         .frame(width: width)
     }
@@ -333,7 +318,7 @@ struct ContentView: View {
                 .overlay(alignment: .bottomTrailing) {
                     if showKeysPanel { keysPanel }
                 }
-            screenBar(keysToggle: true)
+            bar(picture: true, keysToggle: true)
         }
         .padding(.bottom, inset)
     }
@@ -367,26 +352,32 @@ struct ContentView: View {
                     KeyStripView(client: client, state: inputState, rowHeight: dockedRow,
                                  replacesRowsWhenExpanded: spare < 40 + 5 * dockedRow + 8)
                 }
-                screenBar(keysToggle: !docked)
+                bar(picture: true, keysToggle: !docked)
             }
             .padding(.bottom, inset)
         }
         .padding(.top, 4)
     }
 
-    /// The dot in the screen bar: green while the host says the stream is healthy, yellow
-    /// while it is struggling (late acks, frames lost, captures skipped), orange when not
-    /// connected. The numbers behind it are in the dot's menu.
+    /// The dot in the bar: green while connected (and, with the picture on, while the host
+    /// says the stream is healthy), yellow while the stream is struggling (late acks, frames
+    /// lost, captures skipped), orange when not connected. Status text, stream numbers and
+    /// the list of Macs are in the dot's menu.
     private var streamDotColor: Color {
         guard client.isConnected else { return .orange }
         return screen.health?.ok == false ? .yellow : .green
     }
 
-    private func screenBar(keysToggle: Bool) -> some View {
+    /// The one bar every layout ends with, picture on or off, so every control keeps its
+    /// place: the dot, the screen toggle, then (picture on) the keys and keyboard toggles,
+    /// the mouse buttons, the controller mark, (picture off) the setup guide, and settings.
+    /// With the picture off the key strip carries its own keyboard toggle.
+    private func bar(picture: Bool, keysToggle: Bool = false) -> some View {
         HStack(spacing: 8) {
             Menu {
-                if let health = screen.health {
-                    Section {
+                Section {
+                    Text(client.status)
+                    if let health = screen.health {
                         Text(health.summary)
                         if health.phones > 1 {
                             Label("\(health.phones) phones connected", systemImage: "exclamationmark.triangle")
@@ -405,21 +396,31 @@ struct ContentView: View {
                     .frame(maxHeight: .infinity)
             }
             .accessibilityLabel(screen.health.map { "\(client.status). Stream \($0.ok ? "healthy" : "struggling"): \($0.summary)" } ?? client.status)
-            barButton("display.2", label: "Hide the computer's screen") { settings.showScreen = false }
-            if keysToggle {
-                barButton(showKeysPanel ? "command.square.fill" : "command.square", label: showKeysPanel ? "Hide keys" : "Show keys") {
-                    showKeysPanel.toggle()
+            if screenAvailable, client.isConnected {
+                barButton(picture ? "display.2" : "display",
+                          label: picture ? "Hide the computer's screen" : "Show the computer's screen") {
+                    settings.showScreen.toggle()
                 }
             }
-            barButton(inputState.keyboardShown ? "keyboard.chevron.compact.down" : "keyboard",
-                      label: inputState.keyboardShown ? "Hide keyboard" : "Show keyboard") {
-                inputState.keyboardShown.toggle()
+            if picture {
+                if keysToggle {
+                    barButton(showKeysPanel ? "command.square.fill" : "command.square", label: showKeysPanel ? "Hide keys" : "Show keys") {
+                        showKeysPanel.toggle()
+                    }
+                }
+                barButton(inputState.keyboardShown ? "keyboard.chevron.compact.down" : "keyboard",
+                          label: inputState.keyboardShown ? "Hide keyboard" : "Show keyboard") {
+                    inputState.keyboardShown.toggle()
+                }
             }
             mouseButtons
             if controller.controllerName != nil {
                 Image(systemName: "gamecontroller.fill")
                     .foregroundStyle(.green)
                     .accessibilityLabel("Controller connected")
+            }
+            if !picture {
+                barButton("questionmark.circle", label: "Setup guide") { showSetup = true }
             }
             barButton("gearshape", label: "Settings") { showSettings = true }
         }
@@ -470,45 +471,6 @@ struct ContentView: View {
         KeyInputView(client: client, state: inputState)
             .frame(width: 1, height: 1)
             .opacity(0.01)
-    }
-
-    /// The bar without the picture: same place (the bottom) and same buttons (`barButton`)
-    /// as `screenBar`, with the connection status spelled out where the mouse buttons go.
-    private var plainBar: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(client.isConnected ? Color.green : Color.orange)
-                .frame(width: 9, height: 9)
-            Menu {
-                ForEach(client.services) { service in
-                    Button(service.name) { client.connect(to: service) }
-                }
-                if client.services.isEmpty {
-                    Text("No Macs found yet")
-                }
-            } label: {
-                Text(client.status)
-                    .font(.footnote)
-                    .lineLimit(1)
-                    .foregroundStyle(.secondary)
-            }
-            .tint(.secondary)   // the menu would paint its label in the accent colour
-            Spacer()
-            if controller.controllerName != nil {
-                Image(systemName: "gamecontroller.fill")
-                    .foregroundStyle(.green)
-                    .accessibilityLabel("Controller connected")
-            }
-            if screenAvailable, client.isConnected {
-                barButton(settings.showScreen ? "display.2" : "display",
-                          label: settings.showScreen ? "Hide the computer's screen" : "Show the computer's screen") {
-                    settings.showScreen.toggle()
-                }
-            }
-            barButton("questionmark.circle", label: "Setup guide") { showSetup = true }
-            barButton("gearshape", label: "Settings") { showSettings = true }
-        }
-        .frame(height: 36)
     }
 
     private var trackpad: some View { trackpadPane(picture: true) }
