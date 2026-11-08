@@ -30,12 +30,12 @@ struct KeyStripView: View {
     /// When the iOS keyboard is out there is no room to grow: the F-bar then swaps the
     /// three main rows for the two F-key rows in the same space instead of adding rows.
     var replacesRowsWhenExpanded = false
-    /// `full` is the strip. The pad layouts drop the arrows and space (the stick and the pad
-    /// cover those) and keep the F bar, esc/tab/fn/'/backspace and the modifiers: `padTall`
-    /// as two rows over seven columns, `padWide` as one row of nine.
-    enum Layout { case full, padTall, padWide }
+    /// `full` is the strip. `pad` drops the arrows, space, quote and backspace (the stick,
+    /// the pad and the iOS keyboard cover those) and keeps the F bar over one row of seven:
+    /// esc, tab, fn and the four modifiers. Opened, the two F rows take two rows.
+    enum Layout { case full, pad }
     var layout: Layout = .full
-    /// The pad owns the F toggle in the wide layout, so it can make room for the F rows.
+    /// The pad owns the F toggle, so it can make room for the second F row.
     var showFExternal: Binding<Bool>? = nil
     @State private var showFState = false
     private var showF: Bool { showFExternal?.wrappedValue ?? showFState }
@@ -48,7 +48,7 @@ struct KeyStripView: View {
     @State private var pressedKeys = Set<Int>()
 
     private let gap: CGFloat = 4
-    private var columns: CGFloat { layout == .padWide ? 9 : 7 }
+    private let columns: CGFloat = 7
     private let barHeight: CGFloat = 28
 
     private let topRow: [Key] = [
@@ -74,12 +74,8 @@ struct KeyStripView: View {
         [Key(label: "F8", code: 100, small: true), Key(label: "F9", code: 101, small: true), Key(label: "F10", code: 109, small: true), Key(label: "F11", code: 103, small: true), Key(label: "F12", code: 111, small: true), Key(label: "`", code: 50), Key(label: "⇪", code: 57)],
     ]
 
-    /// The modifiers alone fill the pad's seven columns.
-    private var padModifierRow: [Key] { modifierRow.map { var k = $0; k.width = 1.75; return k } }
-    /// One row of nine: the top row with a single-width backspace, then the modifiers.
-    private var padWideRow: [Key] { topRow.map { var k = $0; k.width = 1; return k } + modifierRow }
-    /// The F rows stretched over nine columns.
-    private var padWideFRows: [[Key]] { fRows.map { $0.map { var k = $0; k.width = 9.0 / 7; return k } } }
+    /// esc, tab, fn and the four modifiers: one key per column.
+    private var padRow: [Key] { Array(topRow.prefix(3)) + modifierRow }
 
     /// Fixed total height, so the parent can lay out around a block that never changes.
     var height: CGFloat {
@@ -87,9 +83,7 @@ struct KeyStripView: View {
         case .full:
             let rows: CGFloat = (showF && !replacesRowsWhenExpanded) ? 5 : 3
             return barHeight + gap + rows * rowHeight + (rows - 1) * gap
-        case .padTall:
-            return barHeight + gap + 2 * rowHeight + gap
-        case .padWide:
+        case .pad:
             return barHeight + gap + (showF ? 2 * rowHeight + gap : rowHeight)
         }
     }
@@ -109,18 +103,11 @@ struct KeyStripView: View {
             VStack(spacing: gap) {
                 fBar
                 switch layout {
-                case .padTall:
+                case .pad:
                     if showF {
                         ForEach(fRows.indices, id: \.self) { row(fRows[$0], unit: unit) }
                     } else {
-                        row(topRow, unit: unit)
-                        row(padModifierRow, unit: unit)
-                    }
-                case .padWide:
-                    if showF {
-                        ForEach(padWideFRows.indices, id: \.self) { row(padWideFRows[$0], unit: unit) }
-                    } else {
-                        row(padWideRow, unit: unit)
+                        row(padRow, unit: unit)
                     }
                 case .full:
                 if showF && replacesRowsWhenExpanded {

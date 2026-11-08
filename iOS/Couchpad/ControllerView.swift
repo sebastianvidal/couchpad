@@ -36,10 +36,10 @@ struct ControllerView: View {
     private let barHeight: CGFloat = 28   // the strip's F bar
     private let blockGap: CGFloat = 6     // between the strip and the pad, like every other block
 
-    /// Tall: the strip's compact rows plus a pad the height of the old three-row strip.
-    /// Wide: one band, three rows tall.
+    /// Tall: the strip's F bar and key row, then a pad the height of the old three-row
+    /// strip. Wide: one band, three rows tall.
     static func height(rowHeight: CGFloat, wide: Bool) -> CGFloat {
-        wide ? 3 * rowHeight + 2 * 4 : (28 + 2 * 4 + 2 * rowHeight) + 6 + (3 * rowHeight + 28 + 2 * 4 + 4)
+        wide ? 3 * rowHeight + 2 * 4 : (28 + 4 + (3 * rowHeight + 28) / 4) + 6 + (3 * rowHeight + 28 + 2 * 4 + 4)
     }
 
     var body: some View {
@@ -58,28 +58,28 @@ struct ControllerView: View {
         .frame(height: rowHeight.map { ControllerView.height(rowHeight: $0, wide: wide) })
     }
 
-    /// The strip's compact rows on top, then the programmable keys, the stick and the diamond.
-    /// The pad is as tall as the three-row strip it replaced, so the picture above it keeps
-    /// its share of the window.
+    /// The strip's F bar and key row on top, then the programmable keys, the stick and the
+    /// diamond, all at one row height. The pad is as tall as the three-row strip it
+    /// replaced, so the picture above it keeps its share of the window. Opening F1–F12
+    /// swaps the key row and the programmable row for the two F rows: nothing moves.
     private func tallBody(_ size: CGSize) -> some View {
         let unit = (size.width - gap * 6) / 7
         // Given the strip's row height, the pad's four rows fill the strip's old height
-        // (bar + three rows); filling a half, both share one row height.
-        let stripRow: CGFloat
+        // (bar + three rows); filling a half, the rows share what there is.
         let row: CGFloat
         if let rowHeight {
-            stripRow = rowHeight
             row = min(unit * 1.2, (3 * rowHeight + barHeight) / 4)
         } else {
-            row = min(unit * 1.2, max(28, (size.height - barHeight - 2 * gap - blockGap - 3 * gap) / 6))
-            stripRow = row
+            row = min(unit * 1.2, max(28, (size.height - barHeight - gap - blockGap - 3 * gap) / 5))
         }
         return VStack(spacing: blockGap) {
-            KeyStripView(client: client, state: state, rowHeight: stripRow, layout: .padTall)
+            KeyStripView(client: client, state: state, rowHeight: row, layout: .pad, showFExternal: $showF)
             VStack(spacing: gap) {
-                HStack(spacing: gap) {
-                    ForEach(ControllerView.topRow, id: \.0) { control, tag in
-                        key(control, tag: tag).frame(width: unit, height: row)
+                if !showF {
+                    HStack(spacing: gap) {
+                        ForEach(ControllerView.topRow, id: \.0) { control, tag in
+                            key(control, tag: tag).frame(width: unit, height: row)
+                        }
                     }
                 }
                 HStack(spacing: gap) {
@@ -93,7 +93,7 @@ struct ControllerView: View {
     }
 
     /// One band: stick, a middle column (the strip's F bar and key row over the seven
-    /// programmable keys; the F rows take the programmable row's place when opened), diamond.
+    /// programmable keys, one key per column; the F rows take both rows when opened), diamond.
     private func wideBody(_ size: CGSize) -> some View {
         let row = rowHeight ?? max(28, (size.height - gap * 2) / 3)
         let band = row * 3 + gap * 2
@@ -104,7 +104,7 @@ struct ControllerView: View {
         return HStack(spacing: gap) {
             VirtualStick(controller: controller).frame(width: band, height: band)
             VStack(spacing: gap) {
-                KeyStripView(client: client, state: state, rowHeight: keyRow, layout: .padWide, showFExternal: $showF)
+                KeyStripView(client: client, state: state, rowHeight: keyRow, layout: .pad, showFExternal: $showF)
                 if !showF {
                     HStack(spacing: gap) {
                         ForEach(ControllerView.topRow, id: \.0) { control, tag in
