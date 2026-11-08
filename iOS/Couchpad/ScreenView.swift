@@ -83,17 +83,24 @@ final class ScreenReceiver: ObservableObject {
 
     private func makeFormat(_ frame: ScreenPacket.Frame) -> CMVideoFormatDescription? {
         var description: CMVideoFormatDescription?
-        let sets = frame.parameterSets.map { [UInt8]($0) }
-        let pointers = sets.map { UnsafePointer<UInt8>($0) }   // kept alive by `sets` for this call
-        let sizes = sets.map(\.count)
+        guard !frame.parameterSets.isEmpty, frame.parameterSets.allSatisfy({ !$0.isEmpty }) else { return nil }
+        // A pointer taken from a Swift array is only valid for the call it is passed to, so
+        // each set is copied into memory of our own for the duration of this call.
+        let buffers = frame.parameterSets.map { set -> UnsafeMutableBufferPointer<UInt8> in
+            let buffer = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: set.count)
+            _ = buffer.initialize(from: set)
+            return buffer
+        }
+        defer { buffers.forEach { $0.deallocate() } }
+        let pointers = buffers.map { UnsafePointer($0.baseAddress!) }
+        let sizes = buffers.map(\.count)
         let status: OSStatus = pointers.withUnsafeBufferPointer { p in
             sizes.withUnsafeBufferPointer { s in
                 frame.hevc
-                    ? CMVideoFormatDescriptionCreateFromHEVCParameterSets(allocator: nil, parameterSetCount: sets.count, parameterSetPointers: p.baseAddress!, parameterSetSizes: s.baseAddress!, nalUnitHeaderLength: 4, extensions: nil, formatDescriptionOut: &description)
-                    : CMVideoFormatDescriptionCreateFromH264ParameterSets(allocator: nil, parameterSetCount: sets.count, parameterSetPointers: p.baseAddress!, parameterSetSizes: s.baseAddress!, nalUnitHeaderLength: 4, formatDescriptionOut: &description)
+                    ? CMVideoFormatDescriptionCreateFromHEVCParameterSets(allocator: nil, parameterSetCount: buffers.count, parameterSetPointers: p.baseAddress!, parameterSetSizes: s.baseAddress!, nalUnitHeaderLength: 4, extensions: nil, formatDescriptionOut: &description)
+                    : CMVideoFormatDescriptionCreateFromH264ParameterSets(allocator: nil, parameterSetCount: buffers.count, parameterSetPointers: p.baseAddress!, parameterSetSizes: s.baseAddress!, nalUnitHeaderLength: 4, formatDescriptionOut: &description)
             }
         }
-        withExtendedLifetime(sets) {}
         return status == noErr ? description : nil
     }
 
