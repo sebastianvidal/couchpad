@@ -159,20 +159,22 @@ Report problems at https://github.com/sebastianvidal/couchpad/issues or via the 
 ## Screenshots
 
 Upload order (1.2):
-1. `01-controller.png`: "Your phone is the controller" (the pad under the Mac's picture)
+1. `01-controller.png`: "Your iPhone is the controller" (the controller under the Mac's picture)
 2. `02-trackpad.png`: "Your iPhone is the trackpad and keyboard" (trackpad, key row, bar)
-3. `03-picture.png`: "See the Mac's screen on your phone" (the picture on the trackpad)
+3. `03-picture.png`: "The Mac's screen, on your iPhone" (the picture on the trackpad)
 4. `04-pairing.png`: "Pair once, with a code or a QR"
 5. `05-setup.png`: "Set up in three steps"
 6. `06-settings.png`: "Tune it to your couch"
 
+Wording: "iPhone" (never "phone"), "controller" (never "pad") in every caption, across the
+phone sets and the Duo set.
+
 - `docs/screenshots/6.3/01…06.png`: 1206×2622, for the **medium display** (6.1"/6.3") slot,
-  which is the tab App Store Connect shows first. All six.
-- `docs/screenshots/01, 02, 04, 05, 06.png`: 1320×2868, for the **large display** (6.9")
-  slot. No `03-picture.png` and no picture under the pad in `01`: the 6.9" simulator (iPhone
-  16 Pro Max) isn't paired with the Mac, so it has no picture. Its 01 and 02 raws came from
-  the paired iPhone 17 Pro (an unpaired phone shows the pairing prompt on the trackpad);
-  04–06 are 16 Pro Max captures. 04 in the 6.3" set is the same 16 Pro Max capture.
+  which is the tab App Store Connect shows first.
+- `docs/screenshots/01…06.png`: 1320×2868, for the **large display** (6.9") slot. The same
+  six. 01–03 are iPhone 17 Pro captures scaled up (same aspect ratio; the 6.9" simulator,
+  iPhone 16 Pro Max, isn't paired with the Mac so it has no picture); 04–06 are 16 Pro Max
+  captures. 04 in the 6.3" set is the same 16 Pro Max capture.
 
 Regenerate with `python3 Tools/compose-screenshots.py <raw captures> <out dir> large|medium`;
 the script lists the raw file names it expects and skips any that are missing (raw captures:

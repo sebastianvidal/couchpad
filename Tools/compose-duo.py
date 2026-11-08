@@ -17,11 +17,11 @@ os.makedirs(OUT, exist_ok=True)
 
 renders = [
     # (raw, out, canvas (w, h), headline, sub)
-    ("outer-portrait.png",  "duo-outer-01-portrait.png",  (1398, 2034), "The pad, folded",              "Picture, stick and keys on the cover display."),
-    ("outer-landscape.png", "duo-outer-02-landscape.png", (2034, 1398), "Sideways, folded",             "The pad is a band under the picture."),
-    ("inner-portrait.png",  "duo-inner-01-portrait.png",  (2007, 2853), "Unfold for a\nbigger picture", "The pad takes the bottom half, like a console."),
+    ("outer-portrait.png",  "duo-outer-01-portrait.png",  (1398, 2034), "The controller, folded",       "Picture, stick and keys on the cover display."),
+    ("outer-landscape.png", "duo-outer-02-landscape.png", (2034, 1398), "Sideways, folded",             "The controller is a band under the picture."),
+    ("inner-portrait.png",  "duo-inner-01-portrait.png",  (2007, 2853), "Unfold for a\nbigger picture", "The controller takes the bottom half, like a console."),
     ("inner-landscape.png", "duo-inner-02-landscape.png", (2853, 2007), "Unfolded, sideways",           "Stick on the left, A B X Y on the right."),
-    ("inner-half-open.png", "duo-inner-03-half-open.png", (2007, 2853), "Half open, a\nhand-held console", "The picture stands up; the pad lies flat."),
+    ("inner-half-open.png", "duo-inner-03-half-open.png", (2007, 2853), "Half open, a\nhand-held console", "The picture stands up; the controller lies flat."),
 ]
 
 def font(size, bold=False):

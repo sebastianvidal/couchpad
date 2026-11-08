@@ -16,10 +16,10 @@ os.makedirs(OUT, exist_ok=True)
 # 4-pairing.png, 5-setup.png, 6-settings.png. A missing raw is skipped, so a set can leave
 # one out (the 6.9" set has no 3-picture.png: that simulator isn't paired).
 captions = [
-    ("1-controller.png", "01-controller.png", "Your phone is\nthe controller",            "A stick, A B X Y and seven programmable keys."),
+    ("1-controller.png", "01-controller.png", "Your iPhone is\nthe controller",           "A stick, A B X Y and seven keys you bind."),
     ("2-main.png",       "02-trackpad.png",   "Your iPhone is the\ntrackpad and keyboard", "With esc, tab, fn, the modifiers and F1–F12."),
-    ("3-picture.png",    "03-picture.png",    "See the Mac's screen\non your phone",       "The trackpad keeps working on top of it."),
-    ("4-pairing.png",    "04-pairing.png",    "Pair once, with a\ncode or a QR",           "Only paired phones can send input."),
+    ("3-picture.png",    "03-picture.png",    "The Mac's screen,\non your iPhone",        "The trackpad keeps working on top of it."),
+    ("4-pairing.png",    "04-pairing.png",    "Pair once, with a\ncode or a QR",           "Only a paired iPhone can send input."),
     ("5-setup.png",      "05-setup.png",      "Set up in three steps",                      "Free companion app for Mac and Windows."),
     ("6-settings.png",   "06-settings.png",   "Tune it to your couch",                      "Pointer speed, gestures, controller bindings."),
 ]
