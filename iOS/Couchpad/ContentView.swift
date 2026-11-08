@@ -37,6 +37,10 @@ struct ContentView: View {
     /// time it appears and remembered per window size, so the layout can end exactly where
     /// it begins. Keyed by size because a foldable has two displays with different keyboards.
     @AppStorage("landscapeKeyboardTops") private var landscapeKeyboardTops = ""
+    /// The smallest keyboard height iOS has reported per window size: half open, it first
+    /// announces the keyboard at its real height, then re-reports it as the whole bottom
+    /// segment with the keys drawn somewhere inside. The real height places the keys.
+    @State private var keyboardHeights: [String: CGFloat] = [:]
 
     var body: some View {
         Group {
@@ -119,8 +123,13 @@ struct ContentView: View {
             // The frame is in screen coordinates; on a phone the window fills the screen.
             // Keyed by window size, so each orientation and posture learns its own.
             guard frame.minY > windowSize.height * 0.3, frame.minY < windowSize.height else { return }
+            let real = min(keyboardHeights[sizeKey] ?? frame.height, frame.height)
+            keyboardHeights[sizeKey] = real
+            // A frame far taller than the keyboard itself is the fold's bottom segment: the
+            // keys sit centred in it (measured: 327 pt of keys in a 495 pt frame).
+            let top = frame.height > real + 40 ? frame.minY + (frame.height - real) / 2 : frame.minY
             var tops = keyboardTops
-            tops[sizeKey] = frame.minY
+            tops[sizeKey] = top
             if let data = try? JSONEncoder().encode(tops), let json = String(data: data, encoding: .utf8) {
                 landscapeKeyboardTops = json
             }
