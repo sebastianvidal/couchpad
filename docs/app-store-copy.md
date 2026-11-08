@@ -59,7 +59,7 @@ remote,mouse,touchpad,wireless,mac,pc,windows,tv,couch,controller,cursor,wifi,ga
 
 ## What's New (1.1)
 
-- See your Mac's screen on the phone: tap the display icon and the picture fills the trackpad, which keeps working as a trackpad. Keys move to a floating panel you can drag, or dock under the picture when there's room. Needs the Mac companion 1.2.
+- See your Mac's screen on the phone: tap the display icon and the picture fills the trackpad, which keeps working as a trackpad. The keys dock under the picture when there's room; otherwise a compact row of F keys, esc, tab and the modifiers is one tap away. Needs the Mac companion 1.2.
 - iPhone Duo: layouts for folded, unfolded and half-open, with the picture on the upright half and the trackpad on the flat one.
 - Keys roll under a sliding finger; hold one and slide to the next.
 - Smoother streaming on Wi-Fi: lost packets cost a frame at most, never a freeze.

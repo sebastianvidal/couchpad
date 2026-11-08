@@ -14,7 +14,9 @@ struct ControllerView: View {
     let client: Client
     @ObservedObject var state: InputState
     /// Tall: the key strip's row height (the pad below is sized to the strip's old height).
-    /// Wide: the band's row height, a third of its height. Nil fills the parent.
+    /// Wide: the band's row height, a third of its height. Nil fills the parent: the keys
+    /// stay key-shaped (at most 1.2 widths tall) and the room left over goes to the stick
+    /// and to the air around it.
     var rowHeight: CGFloat? = nil
     var wide = false
     /// The strip's F bar and key row, summoned from the bar's ⌘ button; off by default.
@@ -53,7 +55,10 @@ struct ControllerView: View {
             Group {
                 if state.keyboardShown {
                     typingBody(geo.size)
-                } else if wide {
+                } else if wide && (rowHeight != nil || geo.size.width > geo.size.height * 2.2) {
+                    // Filling a room that is wide but not that wide (the flat half of an
+                    // upright, half-open Duo is about 1.7:1), the band would be a strip across
+                    // the middle with the rest empty: the tall layout fills it instead.
                     wideBody(geo.size)
                 } else {
                     tallBody(geo.size)
@@ -92,15 +97,22 @@ struct ControllerView: View {
     /// Opening F1–F12 swaps the key row and the programmable row for the two F rows.
     private func tallBody(_ size: CGSize) -> some View {
         let unit = (size.width - gap * 6) / 7
+        let strip = showKeys ? barHeight + gap + blockGap : 0   // the strip's bar and gaps; its row is a row
         // Given the strip's row height, the pad's four rows fill the strip's old height
-        // (bar + three rows); filling a half, the rows share what there is.
+        // (bar + three rows); filling a half, the rows share what there is, up to key shape.
         let row: CGFloat
         if let rowHeight {
             row = min(unit * 1.2, (3 * rowHeight + barHeight) / 4)
         } else {
-            let extra = showKeys ? barHeight + gap + blockGap : 0
-            row = min(unit * 1.2, max(28, (size.height - extra - 3 * gap) / (showKeys ? 5 : 4)))
+            row = min(unit * 1.2, max(28, (size.height - strip - 3 * gap) / (showKeys ? 5 : 4)))
         }
+        // Under the keys, the stick and the diamond: three rows tall given a row height.
+        // Filling, they take whatever the keys leave; the stick grows (square, up to the
+        // four columns the diamond leaves it) and the rest is air around the two.
+        let above = strip + (showKeys ? row : 0) + row + gap
+        let fill = rowHeight == nil
+        let lower = fill ? max(row * 3 + gap * 2, size.height - above) : row * 3 + gap * 2
+        let stick = fill ? min(lower, unit * 4 + gap * 3) : unit * 3 + gap * 2
         return VStack(spacing: blockGap) {
             if showKeys {
                 KeyStripView(client: client, state: state, rowHeight: row, layout: .pad, showFExternal: $showF)
@@ -115,10 +127,10 @@ struct ControllerView: View {
                 }
                 HStack(spacing: gap) {
                     VirtualStick(controller: controller)
-                        .frame(width: unit * 3 + gap * 2, height: row * 3 + gap * 2)
+                        .frame(width: stick, height: fill ? stick : lower)
                     diamond(unit: unit, row: row)
                 }
-                .frame(height: row * 3 + gap * 2)
+                .frame(height: lower)
             }
         }
     }
@@ -127,13 +139,29 @@ struct ControllerView: View {
     /// bar and key row over them when asked for; the F rows take both rows when opened),
     /// diamond.
     private func wideBody(_ size: CGSize) -> some View {
-        let row = rowHeight ?? max(28, (size.height - gap * 2) / 3)
-        let band = row * 3 + gap * 2
+        // The stick's and the diamond's squares. Given a row height, three rows; filling,
+        // as tall as the room allows but never so wide that the seven keys between them
+        // drop under 44pt (the band used to be the room's full height, which on a wide,
+        // short half pushed the diamond off the edge and crushed the middle to nothing).
+        let band: CGFloat
+        let faceUnit: CGFloat   // a face button's width
+        let row: CGFloat        // and its height
+        if let rowHeight {
+            row = rowHeight
+            band = row * 3 + gap * 2
+            faceUnit = row
+        } else {
+            let keysWidth = 7 * 44 + 6 * gap
+            band = max(0, min(size.height, max(size.width * 0.22, min(size.width * 0.3, (size.width - gap * 2 - keysWidth) / 2))))
+            faceUnit = (band - gap * 2) / 3
+            row = min(faceUnit * 1.2, (band - gap * 1.2) / 2.2)
+        }
         let middle = size.width - band * 2 - gap * 2
         let unit = (middle - gap * 6) / 7
-        // With the strip: bar + gap + two key rows + gap fill the band exactly. Without it,
-        // the programmable keys stay key-shaped, centred in the band.
-        let keyRow = showKeys ? (band - barHeight - 2 * gap) / 2 : min(band, unit * 1.2)
+        // With the strip: bar + gap + two key rows + gap fill the band exactly (filling, up
+        // to key shape). Without it, the programmable keys stay key-shaped, centred in the band.
+        let stripRow = (band - barHeight - 2 * gap) / 2
+        let keyRow = showKeys ? (rowHeight == nil ? min(stripRow, unit * 1.2) : stripRow) : min(band, unit * 1.2)
         return HStack(spacing: gap) {
             VirtualStick(controller: controller).frame(width: band, height: band)
             VStack(spacing: gap) {
@@ -148,8 +176,8 @@ struct ControllerView: View {
                     }
                 }
             }
-            .frame(width: middle, height: band, alignment: showKeys ? .top : .center)
-            diamond(unit: row, row: row).frame(width: band, height: band)
+            .frame(width: middle, height: band, alignment: showKeys && rowHeight != nil ? .top : .center)
+            diamond(unit: faceUnit, row: row).frame(width: band, height: band)
         }
         .frame(height: band)
     }

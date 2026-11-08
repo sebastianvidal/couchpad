@@ -21,8 +21,8 @@ between, on your Wi-Fi or through your VPN.
 - **Windows:** compiles, not yet run on a real Windows machine (see the appendix).
 - **New:** the Mac's screen on the phone. Turn it on with the display icon next to the gear;
   the picture fills the trackpad, which keeps working as a trackpad (or, as an option, the
-  pointer jumps to where you touch), with the keys in a floating panel you can drag around, or
-  docked under the picture when the screen has room (unfolded iPhone Duo). Hardware HEVC at
+  pointer jumps to where you touch), with the full key strip docked under the picture when the screen has room (unfolded
+  iPhone Duo), otherwise its compact row (F keys, esc, tab, fn, the modifiers) one tap away. Hardware HEVC at
   up to 60 frames a second, sent as encrypted UDP datagrams with parity and retransmission so
   a lost Wi-Fi packet costs a frame at most, never a stall; the host paces itself by the
   phone's acknowledgements so lag can't build up. Half-open Duo: picture on the upright half,
