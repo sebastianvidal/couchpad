@@ -39,10 +39,6 @@ final class Server {
         var udp: NWConnection?
         var videoSequence: UInt32 = 0
         var lastDatagramAt = 0.0
-        /// Sealed datagrams waiting to go out: a frame's chunks are spread over a few
-        /// milliseconds rather than fired in one burst, which Wi-Fi tends to lose whole.
-        var outgoing: [Data] = []
-        var paceCredit = 0.0
         /// The last few frames' chunk plaintexts, to answer nacks from.
         var recentChunks: [(sequence: UInt32, chunks: [Data])] = []
         var resent = 0
@@ -65,9 +61,8 @@ final class Server {
     private var lastLossAt = 0.0
     private var lastFecCutAt = 0.0
     private var lastFecRelaxAt = 0.0
-    private var pacer: DispatchSourceTimer?
-    /// Datagrams queued per phone before the oldest are thrown away (a keyframe and change).
-    private let maxOutgoing = 400
+    /// Spreads each phone's datagrams over time on its own real-time thread (see Pacer).
+    private lazy var pacer = Pacer(onSendError: { [weak self] in self?.queue.async { self?.sendErrors += 1 } })
     private let port: UInt16
     // User-interactive: acks, the 1 ms pacer and key injection must keep their turn while
     // a fullscreen game pins every core. At default priority the pacer fell behind and
@@ -264,9 +259,8 @@ final class Server {
             let wanted = n == 0 ? Array(frame.chunks.indices) : (0..<n).map { Int(VideoDatagram.readUInt(plain, 7 + 2 * $0, bytes: 2)) }
             // Resends go to the front of the queue: the phone is holding frames for them.
             let again = wanted.filter { $0 < frame.chunks.count }.compactMap { video.seal(frame.chunks[$0]) }
-            session.outgoing.insert(contentsOf: again, at: 0)
+            if let udp = session.udp { pacer.enqueue(again, for: ObjectIdentifier(session), udp: udp, front: true) }
             session.resent += again.count
-            startPacer()
         default:
             break
         }
@@ -466,9 +460,9 @@ final class Server {
         guard now - lastStatsAt > 5 else { return }
         lastStatsAt = now
         let backlog = session.unacked.reduce(0) { $0 + $1.bytes }
-        NSLog("Screen %@ (%@): ack delay %.0f ms (max %.0f), backlog %d KB in %d frames, %d resent, %d lost (%d chunks), parity 1/%d; %@",
+        NSLog("Screen %@ (%@): ack delay %.0f ms (max %.0f), backlog %d KB in %d frames, %d resent, %d lost (%d chunks), parity 1/%d, pacer gap %.0f ms; %@",
               String(describing: session.connection.endpoint), session.udp == nil ? "tcp" : "udp", session.ackDelay * 1000, session.maxAckDelay * 1000,
-              backlog / 1024, session.unacked.count, session.resent, session.lossReports, session.lostChunks, fecGroup, ScreenStreamer.shared.takeStats())
+              backlog / 1024, session.unacked.count, session.resent, session.lossReports, session.lostChunks, fecGroup, pacer.report() * 1000, ScreenStreamer.shared.takeStats())
         session.maxAckDelay = 0
         session.lossReports = 0
         session.lostChunks = 0
@@ -572,12 +566,10 @@ final class Server {
                 let chunks = VideoDatagram.chunks(frame: packet, sequence: session.videoSequence, groupSize: fecGroup)
                 session.videoSequence &+= 1
                 session.lastDatagramAt = now
-                _ = udp
-                for chunk in chunks { if let sealed = video.seal(chunk) { session.outgoing.append(sealed) } }
+                pacer.bytesPerSecond = ScreenStreamer.shared.paceBytesPerSecond
+                pacer.enqueue(chunks.compactMap { video.seal($0) }, for: ObjectIdentifier(session), udp: udp)
                 session.recentChunks.append((session.videoSequence &- 1, chunks))
                 if session.recentChunks.count > 8 { session.recentChunks.removeFirst() }
-                if session.outgoing.count > maxOutgoing { session.outgoing.removeFirst(session.outgoing.count - maxOutgoing) }
-                startPacer()
                 session.lastFrameSentAt = now
                 session.unacked.append((frame.presentationMicros, packet.count, now))
                 if session.unacked.count > 600 { session.unacked.removeFirst(300) }
@@ -596,47 +588,12 @@ final class Server {
         if keyframeWanted { ScreenStreamer.shared.requestKeyframe() }
     }
 
-    /// Sends queued datagrams at a few times the encoder's bitrate, every millisecond: a
-    /// keyframe leaves over tens of milliseconds instead of as one burst, which Wi-Fi tends
-    /// to drop whole. Stops itself when every queue is empty.
-    private func startPacer() {
-        guard pacer == nil else { return }
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(1), leeway: .microseconds(200))
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            var busy = false
-            for session in self.sessions.values where !session.outgoing.isEmpty {
-                guard let udp = session.udp else { session.outgoing.removeAll(); continue }
-                let perMs = ScreenStreamer.shared.paceBytesPerSecond / 1000
-                session.paceCredit = min(session.paceCredit + perMs, perMs * 2)
-                var n = 0
-                while n < session.outgoing.count, n == 0 || session.paceCredit >= Double(session.outgoing[n].count) {
-                    session.paceCredit -= Double(session.outgoing[n].count)
-                    n += 1
-                }
-                let batch = session.outgoing.prefix(n)
-                session.outgoing.removeFirst(batch.count)
-                udp.batch {
-                    for datagram in batch {
-                        udp.send(content: datagram, completion: .contentProcessed { [weak self] error in
-                            if error != nil { self?.queue.async { self?.sendErrors += 1 } }
-                        })
-                    }
-                }
-                if !session.outgoing.isEmpty { busy = true }
-            }
-            if !busy { self.pacer?.cancel(); self.pacer = nil }
-        }
-        timer.resume()
-        pacer = timer
-    }
-
     private func drop(_ session: Session) {
         guard sessions.removeValue(forKey: ObjectIdentifier(session.connection)) != nil else { return }
         session.connection.cancel()
         if let video = session.video, videoSessions[video.streamID] === session { videoSessions[video.streamID] = nil }
         session.udp?.cancel()
+        pacer.clear(ObjectIdentifier(session))
         // Never leave a key or mouse button stuck down when the phone goes away.
         if session.authenticated { Injector.shared.releaseAll() }
         session.wantsScreen = false
