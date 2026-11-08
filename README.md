@@ -11,9 +11,11 @@ between, on your Wi-Fi or through your VPN.
 **Status (November 2026)**
 - **iPhone:** public **TestFlight beta** — https://testflight.apple.com/join/kY67K51G — ahead
   of a free App Store release. Supports iPhone Duo, folded or unfolded, in both orientations.
-- **Mac:** **1.3 released**, signed and notarized —
-  [download](https://github.com/sebastianvidal/couchpad/releases/latest). 1.3 wakes a
-  sleeping display on input from the phone and opens its menu instantly; 1.2 streams the
+- **Mac:** **1.4 released**, signed and notarized —
+  [download](https://github.com/sebastianvidal/couchpad/releases/latest). 1.4 keeps the
+  picture smooth when a phone's connection drops and comes back, and brings it back after
+  the display sleeps; 1.3 wakes a sleeping display on input from the phone and opens its
+  menu instantly; 1.2 streams the
   Mac's screen to the phone over encrypted UDP (below) on top of 1.1's encrypted sessions and
   hardened pairing; it needs the current iPhone build.
 - **Windows:** compiles, not yet run on a real Windows machine (see the appendix).
@@ -37,7 +39,7 @@ Site: https://sebastianvidal.github.io/couchpad/
 1. **iPhone:** install [TestFlight](https://apps.apple.com/app/testflight/id899247664), then
    open https://testflight.apple.com/join/kY67K51G on the phone and tap Install. Allow
    **Local Network** when asked, otherwise the app can't find your computer.
-2. **Mac:** download `Couchpad-1.3.dmg` from
+2. **Mac:** download `Couchpad-1.4.dmg` from
    [Releases](https://github.com/sebastianvidal/couchpad/releases/latest), drag Couchpad to
    Applications, open it. A cursor icon appears in the menu bar. Grant **Accessibility** when
    macOS asks (System Settings → Privacy & Security → Accessibility); that permission is what
