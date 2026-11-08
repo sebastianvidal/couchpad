@@ -25,6 +25,11 @@ final class Server {
         /// the true backlog, including what sits in the kernel and on the air.
         var unacked: [(pts: UInt64, bytes: Int, sentAt: CFAbsoluteTime)] = []
         var acks = false
+        /// When the last ack arrived and the last frame went out: a phone that keeps getting
+        /// frames but has stopped answering is gone (its connection died without a close),
+        /// and must not hold the capture back or be fed any longer.
+        var lastAckAt = 0.0
+        var lastFrameSentAt = 0.0
         var ackDelay = 0.0
         /// Worst ack delay since the last stats line: stalls are short and the average hides them.
         var maxAckDelay = 0.0
@@ -89,6 +94,9 @@ final class Server {
             return self.sessions.values.contains { session in
                 guard session.wantsScreen, session.authenticated else { return false }
                 guard session.acks else { return session.inflight > self.inflightCap }
+                // A phone that has answered nothing for a second is gone or blacked out; it
+                // must not stall the picture for the others (it is dropped shortly, below).
+                guard now - session.lastAckAt < 1 else { return false }
                 // Congested means the phone is *late*, not that a big frame is in the air:
                 // skip only once the oldest unacknowledged frame has been out too long.
                 // An ack lost on the way back would otherwise block capture for good: a frame
@@ -111,7 +119,15 @@ final class Server {
     /// Starts listening; if the port is busy or the network isn't up yet, keeps retrying.
     func start() {
         let params = NWParameters.tcp
-        (params.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options)?.noDelay = true
+        if let tcp = params.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options {
+            tcp.noDelay = true
+            // A phone that vanishes mid-stream (Wi-Fi reset, app killed) sends no close; without
+            // keepalives its session would linger for minutes, still being fed frames.
+            tcp.enableKeepalive = true
+            tcp.keepaliveIdle = 5
+            tcp.keepaliveInterval = 2
+            tcp.keepaliveCount = 3
+        }
         // Marked like a voice call: Wi-Fi gives the frames the voice access category, and
         // iOS holds off its roaming scans (which black the radio out for most of a second)
         // while a voice-class connection is active.
@@ -151,6 +167,14 @@ final class Server {
                     guard let udp = session.udp, let sealed = session.video?.seal(VideoDatagram.ping) else { continue }
                     session.lastDatagramAt = now
                     udp.send(content: sealed, completion: .contentProcessed { _ in })
+                }
+                // Frames going out, nothing coming back for seconds: the phone is gone. Its
+                // old session would otherwise be a ghost client, fed every frame and never
+                // answering, which looks to the capture like a hopelessly late phone.
+                for session in self.sessions.values
+                where session.wantsScreen && session.acks && now - session.lastFrameSentAt < 2 && now - session.lastAckAt > 4 {
+                    NSLog("Screen %@: no acks for 4 s while sending; dropping the dead session", String(describing: session.connection.endpoint))
+                    self.drop(session)
                 }
             }
             timer.resume()
@@ -406,6 +430,7 @@ final class Server {
     private func acknowledge(_ pts: UInt64, session: Session) {
         session.acks = true
         let now = CFAbsoluteTimeGetCurrent()
+        session.lastAckAt = now
         while let first = session.unacked.first, first.pts <= pts {
             session.unacked.removeFirst()
             if first.pts == pts {
@@ -473,12 +498,14 @@ final class Server {
                 if session.recentChunks.count > 8 { session.recentChunks.removeFirst() }
                 if session.outgoing.count > maxOutgoing { session.outgoing.removeFirst(session.outgoing.count - maxOutgoing) }
                 startPacer()
+                session.lastFrameSentAt = now
                 session.unacked.append((frame.presentationMicros, packet.count, now))
                 if session.unacked.count > 600 { session.unacked.removeFirst(300) }
                 continue
             }
             guard let cipher = session.send, let sealed = try? cipher.seal(packet) else { continue }
             session.inflight += sealed.count
+            session.lastFrameSentAt = now
             session.unacked.append((frame.presentationMicros, sealed.count, now))
             if session.unacked.count > 600 { session.unacked.removeFirst(300) }   // a phone that never acks
             let size = sealed.count

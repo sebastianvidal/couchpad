@@ -128,6 +128,13 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   plus a simulator) restarted the stream at each other's size every few seconds, which felt
   like terrible performance. Never leave a simulator connected to the host while the user
   tests on their phone. The host logs each request as `Screen …: wants WxH at N fps`.
+- A phone whose connection dies without a close (Wi-Fi reset, app killed) used to leave a
+  ghost session that was fed every frame and never acked: the capture saw a hopelessly late
+  phone and skipped nearly everything, letting through about a frame a second plus forced
+  keyframes (`skipped ~285` per stats line with `0 lost`, constant keyframe size). Sessions
+  silent for 1 s no longer count as congestion, are dropped after 4 s of unanswered frames,
+  and TCP keepalives (5 s idle) kill dead connections. `lsof` does not show Network.framework
+  connections; use `nettop -p <pid>` to see who is really connected.
 - In zsh, `log` is a shell builtin: use `/usr/bin/log show --process Couchpad`. NSLog
   arguments show as `<private>` there, so for the stats line capture stderr (launch the
   binary directly with `2>file`).
