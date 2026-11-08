@@ -47,6 +47,7 @@ final class Server {
         var recentChunks: [(sequence: UInt32, chunks: [Data])] = []
         var resent = 0
         var lossReports = 0
+        var lossTotal = 0   // never reset; the health check diffs it
         var lostChunks = 0
         init(_ connection: NWConnection) { self.connection = connection }
     }
@@ -73,6 +74,17 @@ final class Server {
     private var sessions: [ObjectIdentifier: Session] = [:]
 
     private(set) var status = "Starting…"
+    /// Once a second while a phone has the picture: worst ack delay, frames lost, captures
+    /// skipped, as a short line for the menu, and whether that counts as healthy.
+    private(set) var healthLine: String?
+    private(set) var healthy = true
+    private var tick = 0
+    private var lastEncodedTotal = 0
+    private var lastSkippedTotal = 0
+    private var lastLossTotals: [ObjectIdentifier: Int] = [:]
+    private var skipStormTicks = 0
+    private var lastStreamStartAt = 0.0
+    private var syncPending = false
 
     /// Bytes allowed in flight per phone before frames are dropped instead of queued: queuing
     /// turns a Wi-Fi hiccup into seconds of lag, dropping turns it into a brief freeze.
@@ -176,6 +188,8 @@ final class Server {
                     NSLog("Screen %@: no acks for 4 s while sending; dropping the dead session", String(describing: session.connection.endpoint))
                     self.drop(session)
                 }
+                self.tick += 1
+                if self.tick % 2 == 0 { self.checkHealth(now: now) }
             }
             timer.resume()
             keepalive = timer
@@ -404,6 +418,7 @@ final class Server {
             // the bitrate so the next loss is less likely.
             let frames = Int(parts.count > 2 ? parts[2] : "1") ?? 1
             session.lossReports += frames
+            session.lossTotal += frames
             session.lostChunks += Int(parts.count > 3 ? parts[3] : "0") ?? 0
             session.needsKeyframe = true
             ScreenStreamer.shared.requestKeyframe()
@@ -457,13 +472,75 @@ final class Server {
         session.resent = 0
     }
 
+    /// Once a second: summarise the stream for the menu and the phones, and act on the one
+    /// failure pattern that cannot fix itself. Captures skipped while nothing is lost means
+    /// the host is waiting on acks that never come (a ghost session, a stuck backlog): after
+    /// three such seconds the silent sessions are dropped, every backlog is cleared and a
+    /// keyframe is forced, so a new cause of that pattern costs seconds, not the session.
+    private func checkHealth(now: CFAbsoluteTime) {
+        let streamer = ScreenStreamer.shared
+        let encoded = streamer.encodedTotal - lastEncodedTotal
+        let skipped = streamer.skippedTotal - lastSkippedTotal
+        lastEncodedTotal = streamer.encodedTotal
+        lastSkippedTotal = streamer.skippedTotal
+        let watching = sessions.values.filter { $0.wantsScreen && $0.authenticated }
+        var lost = 0
+        var totals: [ObjectIdentifier: Int] = [:]
+        for session in watching {
+            let id = ObjectIdentifier(session)
+            totals[id] = session.lossTotal
+            lost += session.lossTotal - (lastLossTotals[id] ?? session.lossTotal)
+        }
+        lastLossTotals = totals
+        guard !watching.isEmpty else {
+            if healthLine != nil { healthLine = nil; healthy = true; skipStormTicks = 0; report() }
+            return
+        }
+        let ackMs = Int((watching.filter { $0.acks && now - $0.lastAckAt < 5 }.map(\.ackDelay).max() ?? 0) * 1000)
+        let skipPct = encoded + skipped > 0 ? skipped * 100 / (encoded + skipped) : 0
+        let storm = skipped > 20 && encoded < 5
+        let ok = ackMs <= 50 && lost < 2 && !storm
+        let phones = sessions.values.filter { $0.authenticated }.count
+        let line = String(format: "%d ms · %d lost/s · %d%% skipped", ackMs, lost, skipPct)
+        for session in watching { try? send("screen health \(ok ? 1 : 0) \(ackMs) \(lost) \(skipPct) \(phones)", to: session) }
+        if line != healthLine || ok != healthy {
+            healthLine = line
+            healthy = ok
+            report()
+        }
+        skipStormTicks = storm ? skipStormTicks + 1 : 0
+        if skipStormTicks >= 3 {
+            skipStormTicks = 0
+            NSLog("Watchdog: skip storm (%d skipped, %d encoded in the last second, %d lost); dropping silent sessions and clearing backlogs", skipped, encoded, lost)
+            for session in watching where session.acks && now - session.lastAckAt > 1 { drop(session) }
+            for session in sessions.values {
+                session.unacked.removeAll()
+                session.needsKeyframe = true
+            }
+            streamer.requestKeyframe()
+        }
+    }
+
     /// One stream serves every phone, at the largest size any of them asked for: each
     /// phone's picture is letterboxed anyway, and taking the latest request instead would
     /// have two phones with different panes restart the stream at each other's size, over
     /// and over (every restart costs an encoder and a keyframe). Stops when nobody wants it.
+    /// Requests arriving within 300 ms of the last (re)start are coalesced into one: a phone
+    /// rotating or folding sends several sizes in a row, and each restart costs a keyframe.
     private func syncScreen() {
         let wanting = sessions.values.filter { $0.wantsScreen }
         guard !wanting.isEmpty else { ScreenStreamer.shared.stop(); return }
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - lastStreamStartAt < 0.3 {
+            guard !syncPending else { return }
+            syncPending = true
+            queue.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.syncPending = false
+                self?.syncScreen()
+            }
+            return
+        }
+        lastStreamStartAt = now
         ScreenStreamer.shared.start(maxWidth: wanting.map(\.screenRequest.maxWidth).max() ?? 0,
                                     maxHeight: wanting.map(\.screenRequest.maxHeight).max() ?? 0,
                                     fps: wanting.map(\.screenRequest.fps).max() ?? 0)
@@ -566,7 +643,10 @@ final class Server {
 
     private func report() {
         let n = sessions.values.filter { $0.authenticated }.count
-        set(status: n == 0 ? "Waiting for iPhone…" : (n == 1 ? "1 iPhone connected" : "\(n) iPhones connected"))
+        var line = n == 0 ? "Waiting for iPhone…" : (n == 1 ? "1 iPhone connected" : "\(n) iPhones connected")
+        if let healthLine { line += " · " + healthLine }
+        if !healthy { line += " — picture struggling" }
+        set(status: line)
     }
 
     private func set(status: String) {

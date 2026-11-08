@@ -135,6 +135,13 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   silent for 1 s no longer count as congestion, are dropped after 4 s of unanswered frames,
   and TCP keepalives (5 s idle) kill dead connections. `lsof` does not show Network.framework
   connections; use `nettop -p <pid>` to see who is really connected.
+- Health: once a second the host sums up the stream (worst ack, frames lost, captures
+  skipped) in its menu status line (icon turns into a warning triangle while struggling) and
+  sends `screen health <ok> <ack ms> <lost/s> <skipped %> <phones>` to every phone with the
+  picture; the phone's bar dot turns yellow and its menu lists the numbers and warns when
+  more than one phone is connected. A watchdog drops silent sessions, clears backlogs and
+  forces a keyframe after 3 s of skip storm (`checkHealth` in Server.swift), and stream
+  (re)starts within 300 ms of each other are coalesced.
 - In zsh, `log` is a shell builtin: use `/usr/bin/log show --process Couchpad`. NSLog
   arguments show as `<private>` there, so for the stats line capture stderr (launch the
   binary directly with `2>file`).

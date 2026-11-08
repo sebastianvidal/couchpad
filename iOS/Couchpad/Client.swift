@@ -41,6 +41,8 @@ final class Client: ObservableObject {
     var onScreenPacket: ((Data) -> Void)?
     /// Text status about the screen stream from the host ("denied", "error …").
     var onScreenStatus: ((String) -> Void)?
+    /// `screen health <ok> <ack ms> <lost/s> <skipped %> <phones>`, once a second from the host.
+    var onScreenHealth: ((ScreenHealth) -> Void)?
     /// A frame was lost on the UDP path: the decoder must wait for the next keyframe.
     var onScreenLoss: (() -> Void)?
 
@@ -319,7 +321,10 @@ final class Client: ObservableObject {
 
     private func handle(_ line: String) {
         let parts = line.split(separator: " ")
-        if parts.first == "screen", parts.count >= 2 {
+        if parts.first == "screen", parts.count >= 7, parts[1] == "health",
+           let ack = Int(parts[3]), let lost = Int(parts[4]), let skipped = Int(parts[5]), let phones = Int(parts[6]) {
+            onScreenHealth?(ScreenHealth(ok: parts[2] == "1", ackMs: ack, lostPerSecond: lost, skippedPercent: skipped, phones: phones))
+        } else if parts.first == "screen", parts.count >= 2 {
             onScreenStatus?(String(line.dropFirst(7)))
         } else if parts.first == "ok", parts.count >= 4, let hostProof = Data(base64Encoded: String(parts[3])) {
             let token = String(parts[1])

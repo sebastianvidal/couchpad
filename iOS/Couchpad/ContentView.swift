@@ -88,6 +88,9 @@ struct ContentView: View {
             screen.client = client
             client.onScreenPacket = { [weak screen] packet in screen?.handle(packet) }
             client.onScreenStatus = { [weak screen] status in screen?.hostMessage = status }
+            client.onScreenHealth = { [weak screen] health in
+                if screen?.health != health { screen?.health = health }
+            }
             client.onScreenLoss = { [weak screen] in screen?.markLost() }
             client.startBrowsing()
             UIApplication.shared.isIdleTimerDisabled = true
@@ -371,21 +374,37 @@ struct ContentView: View {
         .padding(.top, 4)
     }
 
+    /// The dot in the screen bar: green while the host says the stream is healthy, yellow
+    /// while it is struggling (late acks, frames lost, captures skipped), orange when not
+    /// connected. The numbers behind it are in the dot's menu.
+    private var streamDotColor: Color {
+        guard client.isConnected else { return .orange }
+        return screen.health?.ok == false ? .yellow : .green
+    }
+
     private func screenBar(keysToggle: Bool) -> some View {
         HStack(spacing: 8) {
             Menu {
+                if let health = screen.health {
+                    Section {
+                        Text(health.summary)
+                        if health.phones > 1 {
+                            Label("\(health.phones) phones connected", systemImage: "exclamationmark.triangle")
+                        }
+                    }
+                }
                 ForEach(client.services) { service in
                     Button(service.name) { client.connect(to: service) }
                 }
                 if client.services.isEmpty { Text("No Macs found yet") }
             } label: {
                 Circle()
-                    .fill(client.isConnected ? Color.green : Color.orange)
+                    .fill(streamDotColor)
                     .frame(width: 9, height: 9)
                     .padding(.horizontal, 6)
                     .frame(maxHeight: .infinity)
             }
-            .accessibilityLabel(client.status)
+            .accessibilityLabel(screen.health.map { "\(client.status). Stream \($0.ok ? "healthy" : "struggling"): \($0.summary)" } ?? client.status)
             barButton("display.2", label: "Hide the computer's screen") { settings.showScreen = false }
             if keysToggle {
                 barButton(showKeysPanel ? "command.square.fill" : "command.square", label: showKeysPanel ? "Hide keys" : "Show keys") {

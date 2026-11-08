@@ -52,6 +52,9 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     private(set) var captureAge = 0.0
     private(set) var encodeTime = 0.0
     private(set) var skipped = 0
+    /// Running totals, for the once-a-second health check (the stats line resets `skipped`).
+    private(set) var encodedTotal = 0
+    private(set) var skippedTotal = 0
     private var encodeStarts: [Int64: CFAbsoluteTime] = [:]
     /// Bitrate adaptation: the configured rate for the current size, and the share of it in
     /// use. Every lost frame the phone reports cuts the share; quiet stretches restore it.
@@ -268,7 +271,7 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         captureAge = captureAge * 0.9 + age * 0.1
         // Behind? Skip this frame rather than queue it; the next one encodes against the
         // last frame the phone actually got.
-        if !forceKeyframe, isCongested?() == true { skipped += 1; return }
+        if !forceKeyframe, isCongested?() == true { skipped += 1; skippedTotal += 1; return }
         let now = CFAbsoluteTimeGetCurrent()
         if rateShare < 1, now - lastLossAt > 3, now - lastRaiseAt > 3 {
             lastRaiseAt = now
@@ -340,6 +343,7 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         let dims = CMVideoFormatDescriptionGetDimensions(format)
         let pts = CMSampleBufferGetPresentationTimeStamp(sample)
         if keyframe { lastKeyframeBytes = length }
+        encodedTotal += 1
         let frame = ScreenPacket.Frame(keyframe: keyframe, hevc: hevc, width: Int(dims.width), height: Int(dims.height),
                                        presentationMicros: UInt64(max(0, pts.seconds) * 1_000_000), parameterSets: sets, nalData: nal)
         onFrame?(frame)

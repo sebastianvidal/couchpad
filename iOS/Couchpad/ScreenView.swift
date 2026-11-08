@@ -12,6 +12,8 @@ final class ScreenReceiver: ObservableObject {
     @Published private(set) var videoSize = CGSize.zero
     /// Why there is no picture, as reported by the host ("denied", "error …"), or nil.
     @Published var hostMessage: String?
+    /// The host's once-a-second verdict on the stream; nil until the first one or after a reset.
+    @Published var health: ScreenHealth?
 
     let layer = AVSampleBufferDisplayLayer()
     private var format: CMVideoFormatDescription?
@@ -36,6 +38,7 @@ final class ScreenReceiver: ObservableObject {
         format = nil
         waitingForKeyframe = true
         videoSize = .zero
+        health = nil
     }
 
     func handle(_ packet: Data) {
@@ -117,6 +120,20 @@ final class ScreenReceiver: ObservableObject {
             CFDictionarySetValue(first, Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(), Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
         }
         return sample
+    }
+}
+
+/// What the host measures about the stream, for the status dot: `ok` is its own judgement
+/// (acks under 50 ms, under two frames lost a second, no skip storm).
+struct ScreenHealth: Equatable {
+    var ok: Bool
+    var ackMs: Int
+    var lostPerSecond: Int
+    var skippedPercent: Int
+    var phones: Int
+
+    var summary: String {
+        "\(ackMs) ms · \(lostPerSecond) lost/s · \(skippedPercent)% skipped"
     }
 }
 

@@ -83,6 +83,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func refresh() {
         statusLine.title = server?.status ?? statusLine.title
+        // The icon itself says when the picture is struggling, so nobody has to open the menu.
+        let struggling = server?.healthy == false
+        statusItem.button?.image = NSImage(systemSymbolName: struggling ? "exclamationmark.triangle" : "cursorarrow.rays",
+                                           accessibilityDescription: struggling ? "Couchpad — picture struggling" : "Couchpad")
         addressLine.title = "Address: \(localIPv4() ?? "?"):\(servicePort)"
         loginLine.state = SMAppService.mainApp.status == .enabled ? .on : .off
         forgetLine.isEnabled = Pairing.shared.pairedCount > 0
