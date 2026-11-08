@@ -9,18 +9,19 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 #
 #   python3 Tools/compose-duo.py <raw dir> <out dir>
 #
-# Raw files expected: outer-portrait.png, outer-landscape.png, inner-portrait.png,
-# inner-landscape.png, inner-landscape-keyboard.png.
+# Raw files expected (on-screen controller and the Mac's picture on): outer-portrait.png,
+# outer-landscape.png, inner-portrait.png, inner-landscape.png (all four fully open or
+# closed), inner-half-open.png (Device Hub's "Partially Open": split at the hinge).
 SHOTS, OUT = sys.argv[1], sys.argv[2]
 os.makedirs(OUT, exist_ok=True)
 
 renders = [
     # (raw, out, canvas (w, h), headline, sub)
-    ("outer-portrait.png",  "duo-outer-01-portrait.png",   (1398, 2034), "Trackpad and keys,\nfolded",     "Everything fits the cover display."),
-    ("outer-landscape.png", "duo-outer-02-landscape.png",  (2034, 1398), "Sideways, folded",               "Trackpad one side, keys the other."),
-    ("inner-portrait.png",  "duo-inner-01-portrait.png",   (2007, 2853), "Unfold for bigger keys",         "The layout follows the display, not the device."),
-    ("inner-landscape.png", "duo-inner-02-landscape.png",  (2853, 2007), "Unfolded, sideways",             "Room for the keys and the mouse buttons."),
-    ("inner-landscape-keyboard.png", "duo-inner-03-keyboard.png", (2853, 2007), "Type when you need to", "The keys stay put; the keyboard slides in underneath."),
+    ("outer-portrait.png",  "duo-outer-01-portrait.png",  (1398, 2034), "The pad, folded",              "Picture, stick and keys on the cover display."),
+    ("outer-landscape.png", "duo-outer-02-landscape.png", (2034, 1398), "Sideways, folded",             "The pad is a band under the picture."),
+    ("inner-portrait.png",  "duo-inner-01-portrait.png",  (2007, 2853), "Unfold for a\nbigger picture", "The pad takes the bottom half, like a console."),
+    ("inner-landscape.png", "duo-inner-02-landscape.png", (2853, 2007), "Unfolded, sideways",           "Stick on the left, A B X Y on the right."),
+    ("inner-half-open.png", "duo-inner-03-half-open.png", (2007, 2853), "Half open, a\nhand-held console", "The picture stands up; the pad lies flat."),
 ]
 
 def font(size, bold=False):

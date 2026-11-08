@@ -11,12 +11,17 @@ W, H = {"large": (1320, 2868), "medium": (1206, 2622)}[SIZE]
 S = W / 1320  # scale factor for type and spacing, designed at the large size
 os.makedirs(OUT, exist_ok=True)
 
+# Raw captures expected in <raw dir>: 1-controller.png (the pad under the Mac's picture),
+# 2-main.png (trackpad, key row, bar), 3-picture.png (the picture on the trackpad, pad off),
+# 4-pairing.png, 5-setup.png, 6-settings.png. A missing raw is skipped, so a set can leave
+# one out (the 6.9" set has no 3-picture.png: that simulator isn't paired).
 captions = [
-    ("1-main.png",     "01-trackpad.png",  "Your iPhone is the\ntrackpad and keyboard", "For the Mac or PC that's plugged into the TV."),
-    ("2-keys.png",     "02-game-keys.png", "Keys that stay pressed,\nfor games",         "WASD, space and F-keys hold while you touch them."),
-    ("3-pairing.png",  "03-pairing.png",   "Pair once, with a\ncode or a QR",           "Only paired phones can send input."),
-    ("4-setup.png",    "04-setup.png",     "Set up in three steps",                      "Free companion app for Mac and Windows."),
-    ("5-settings.png", "05-settings.png",  "Tune it to your couch",                      "Pointer speed, scrolling, gestures, and more."),
+    ("1-controller.png", "01-controller.png", "Your phone is\nthe controller",            "A stick, A B X Y and seven programmable keys."),
+    ("2-main.png",       "02-trackpad.png",   "Your iPhone is the\ntrackpad and keyboard", "With esc, tab, fn, the modifiers and F1–F12."),
+    ("3-picture.png",    "03-picture.png",    "See the Mac's screen\non your phone",       "The trackpad keeps working on top of it."),
+    ("4-pairing.png",    "04-pairing.png",    "Pair once, with a\ncode or a QR",           "Only paired phones can send input."),
+    ("5-setup.png",      "05-setup.png",      "Set up in three steps",                      "Free companion app for Mac and Windows."),
+    ("6-settings.png",   "06-settings.png",   "Tune it to your couch",                      "Pointer speed, gestures, controller bindings."),
 ]
 
 def font(size, bold=False):

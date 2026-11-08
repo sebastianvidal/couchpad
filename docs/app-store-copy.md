@@ -158,19 +158,34 @@ Report problems at https://github.com/sebastianvidal/couchpad/issues or via the 
 
 ## Screenshots
 
-Two sets, same five images, in upload order:
-- `docs/screenshots/01…05.png` — 1320×2868, for the **large display** (6.9") slot.
-- `docs/screenshots/6.3/01…05.png` — 1206×2622, for the **medium display** (6.1"/6.3") slot,
-  which is the tab App Store Connect shows first.
+Upload order (1.2):
+1. `01-controller.png`: "Your phone is the controller" (the pad under the Mac's picture)
+2. `02-trackpad.png`: "Your iPhone is the trackpad and keyboard" (trackpad, key row, bar)
+3. `03-picture.png`: "See the Mac's screen on your phone" (the picture on the trackpad)
+4. `04-pairing.png`: "Pair once, with a code or a QR"
+5. `05-setup.png`: "Set up in three steps"
+6. `06-settings.png`: "Tune it to your couch"
 
-Regenerate with `python3 Tools/compose-screenshots.py <raw captures> <out dir> large|medium`
-(raw captures: `xcrun simctl io 'iPhone 16 Pro Max' screenshot name.png`).
+- `docs/screenshots/6.3/01…06.png`: 1206×2622, for the **medium display** (6.1"/6.3") slot,
+  which is the tab App Store Connect shows first. All six.
+- `docs/screenshots/01, 02, 04, 05, 06.png`: 1320×2868, for the **large display** (6.9")
+  slot. No `03-picture.png` and no picture under the pad in `01`: the 6.9" simulator (iPhone
+  16 Pro Max) isn't paired with the Mac, so it has no picture. Its 01 and 02 raws came from
+  the paired iPhone 17 Pro (an unpaired phone shows the pairing prompt on the trackpad);
+  04–06 are 16 Pro Max captures. 04 in the 6.3" set is the same 16 Pro Max capture.
 
-iPhone Duo set, `docs/screenshots/duo/`: outer display 1398×2034 (`duo-outer-*`, portrait
-and landscape) and inner display 2007×2853 (`duo-inner-*`, portrait, landscape, landscape
-with the keyboard up). Regenerate with `python3 Tools/compose-duo.py <raw captures> <out dir>`;
-raw captures come from the Duo simulator, one display at a time:
-`xcrun simctl io <duo udid> screenshot --display=1 outer.png` (`--display=3` for the inner one).
+Regenerate with `python3 Tools/compose-screenshots.py <raw captures> <out dir> large|medium`;
+the script lists the raw file names it expects and skips any that are missing (raw captures:
+`xcrun simctl io <udid> screenshot name.png`). Picture shots: set the Mac to an empty desktop
+first; the streamed picture is whatever is on its screen.
+
+iPhone Duo set, `docs/screenshots/duo/`, all with the on-screen controller and the picture:
+outer display 1398×2034 (`duo-outer-01-portrait`, `duo-outer-02-landscape`, folded) and inner
+display 2007×2853 (`duo-inner-01-portrait` and `duo-inner-02-landscape` unfolded,
+`duo-inner-03-half-open` split at the hinge). Regenerate with
+`python3 Tools/compose-duo.py <raw captures> <out dir>`; raw captures come from the Duo
+simulator, one display at a time: `xcrun simctl io <duo udid> screenshot --display=1 outer.png`
+(`--display=3` for the inner one). Postures come from Device Hub's toolbar.
 
 ## Export compliance
 
