@@ -136,7 +136,10 @@ struct ContentView: View {
             showKeysPanel = false
             resetZoom()
         }
-        .onChange(of: settings.showController) { _, on in
+        .onChange(of: settings.showController, initial: true) { _, on in
+            // The pad's loop runs for as long as the setting is on, whichever layout is
+            // showing it: tied to a view's appearance it died on every rotation.
+            controller.setVirtualShown(on)
             // Thumbs on the controller: the iOS keyboard would only be in the way.
             inputState.keyboardShown = !on && !screenOn && !isLandscape
             showKeysPanel = false
@@ -248,13 +251,20 @@ struct ContentView: View {
             let inset = inputState.keyboardShown ? max(0, bottom - keyboardTop + 8) : 0   // 8pt of air above the keyboard, like every other gap
             let above = geo.size.height - inset - 36 - 6   // what is left over the bar and its gap
             VStack(spacing: 6) {
-                HStack(spacing: 10) {
-                    if settings.trackpadOnRight {
-                        landscapeControls(width: max(300, geo.size.width * 0.42), above: above)
-                        trackpad
-                    } else {
-                        trackpad
-                        landscapeControls(width: max(300, geo.size.width * 0.42), above: above)
+                if settings.showController {
+                    // Sideways the pad is a short band under the trackpad, thumbs at the
+                    // bottom corners, rather than a column beside it.
+                    trackpad
+                    ControllerView(controller: controller, rowHeight: wideRowHeight(above), wide: true)
+                } else {
+                    HStack(spacing: 10) {
+                        if settings.trackpadOnRight {
+                            landscapeControls(width: max(300, geo.size.width * 0.42), above: above)
+                            trackpad
+                        } else {
+                            trackpad
+                            landscapeControls(width: max(300, geo.size.width * 0.42), above: above)
+                        }
                     }
                 }
                 bar(picture: false)
@@ -271,12 +281,8 @@ struct ContentView: View {
         // keys stay keys on a large display (an unfolded iPhone Duo).
         let rowHeight = min(120, max(36, (above - 28 - 3 * 4) / 3))
         return VStack(spacing: 6) {
-            if settings.showController {
-                ControllerView(controller: controller, rowHeight: min(120, max(36, (above - 3 * 4) / 4)))
-            } else {
-                KeyStripView(client: client, state: inputState, rowHeight: rowHeight,
-                             replacesRowsWhenExpanded: inputState.keyboardShown)
-            }
+            KeyStripView(client: client, state: inputState, rowHeight: rowHeight,
+                         replacesRowsWhenExpanded: inputState.keyboardShown)
             Spacer(minLength: 0)   // keeps the column pinned to the top
         }
         .frame(width: width)
@@ -324,8 +330,9 @@ struct ContentView: View {
     private func hingeControls(inset: CGFloat) -> some View {
         VStack(spacing: 6) {
             if settings.showController {
-                // Picture on one half, pad on the other: a hand-held console.
-                ControllerView(controller: controller)
+                // Picture on one half, pad on the other: a hand-held console. Upright the
+                // flat half is wide and short; sideways it is a narrow column.
+                ControllerView(controller: controller, wide: !isLandscape)
             } else {
                 trackpadPane(picture: false)
                     .overlay(alignment: .bottomTrailing) {
@@ -361,20 +368,10 @@ struct ContentView: View {
                 // The pad never floats over the picture: the picture gives up the room.
                 // Upright it goes under the picture (a Game Boy); sideways, beside it.
                 VStack(spacing: 6) {
+                    trackpad
                     if isLandscape {
-                        HStack(spacing: 10) {
-                            if settings.trackpadOnRight {
-                                ControllerView(controller: controller, rowHeight: min(120, max(36, (availableHeight - 12) / 4)))
-                                    .frame(width: max(300, geo.size.width * 0.42))
-                                trackpad
-                            } else {
-                                trackpad
-                                ControllerView(controller: controller, rowHeight: min(120, max(36, (availableHeight - 12) / 4)))
-                                    .frame(width: max(300, geo.size.width * 0.42))
-                            }
-                        }
+                        ControllerView(controller: controller, rowHeight: wideRowHeight(availableHeight), wide: true)
                     } else {
-                        trackpad
                         ControllerView(controller: controller, rowHeight: portraitRowHeight)
                     }
                     bar(picture: true)
@@ -510,6 +507,11 @@ struct ContentView: View {
         .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
         .padding(10)
         .offset(keysOffset)
+    }
+
+    /// Row height for the wide pad band: short, so the picture keeps most of the height.
+    private func wideRowHeight(_ available: CGFloat) -> CGFloat {
+        min(44, max(32, available * 0.1))
     }
 
     /// The block under the picture: the key strip, or the pad when the controller is on.

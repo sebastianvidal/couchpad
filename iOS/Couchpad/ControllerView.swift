@@ -2,60 +2,116 @@ import SwiftUI
 import UIKit
 
 /// The on-screen controller, in the key strip's place and style: a stick fixed on the left,
-/// the face buttons in a diamond on the right, and a row of seven programmable keys along
-/// the top (the pad's bumpers, triggers, stick clicks and menu, each showing its binding). Like a hand-held console, the picture (or trackpad) sits above it. Every
-/// control reports to `ControllerBridge`, so the profile that drives a physical pad drives
-/// this one, and each button shows what it is bound to.
+/// the face buttons in a diamond on the right, and seven programmable keys (the pad's
+/// bumpers, triggers, stick click and menu, each showing its binding). Tall, the keys run
+/// along the top above the stick and the diamond, like a hand-held console under its
+/// screen; wide, everything sits in one short band: stick, keys, diamond.
+/// Every control reports to `ControllerBridge`, so the profile that drives a physical pad
+/// drives this one. The keys share the strip's multi-touch overlay, so a finger sliding
+/// from one to the next releases the first and presses the next.
 struct ControllerView: View {
     @ObservedObject var controller: ControllerBridge
-    /// Height of one of the four rows; nil fills whatever height the parent gives.
+    /// Height of one of the grid's rows (four tall, three wide); nil fills the parent.
     var rowHeight: CGFloat? = nil
+    var wide = false
+    @State private var keyFrames: [Int: CGRect] = [:]
+    @State private var pressedCodes = Set<Int>()
 
     private let gap: CGFloat = 4
-    private let columns: CGFloat = 7
-    private let rows: CGFloat = 4
     /// The programmable row: labelled by what they do, tagged with the pad control they are.
     static let topRow: [(Control, String)] = [(.l1, "L1"), (.l2, "L2"), (.l3, "L3"), (.menu, "menu"), (.options, "opt"), (.r1, "R1"), (.r2, "R2")]
+    /// Every key on the pad, with the synthetic code the touch overlay tracks it by.
+    private static let padKeys: [(Control, Key)] = {
+        let controls: [Control] = topRow.map(\.0) + [.y, .x, .b, .a]
+        return controls.enumerated().map { ($1, Key(label: "", code: 1000 + $0)) }
+    }()
+    private static let keyByCode: [Int: Key] = Dictionary(uniqueKeysWithValues: padKeys.map { ($1.code, $1) })
+    private static let controlByCode: [Int: Control] = Dictionary(uniqueKeysWithValues: padKeys.map { ($1.code, $0) })
+    private static func code(_ control: Control) -> Int { padKeys.first { $0.0 == control }!.1.code }
 
     /// Fixed total height for a given row height, so the parent can lay out around it.
-    static func height(rowHeight: CGFloat) -> CGFloat { 4 * rowHeight + 3 * 4 }
+    static func height(rowHeight: CGFloat, wide: Bool) -> CGFloat {
+        wide ? 3 * rowHeight + 2 * 4 : 4 * rowHeight + 3 * 4
+    }
 
     var body: some View {
         GeometryReader { geo in
-            let unit = (geo.size.width - gap * (columns - 1)) / columns
-            // Keys stay key-shaped: however tall the column, a row is at most 1.2 keys high.
-            let row = min(unit * 1.2, rowHeight ?? max(28, (geo.size.height - gap * (rows - 1)) / rows))
-            VStack(spacing: gap) {
-                HStack(spacing: gap) {
-                    ForEach(ControllerView.topRow, id: \.0) { control, tag in
-                        PadKey(controller: controller, control: control, tag: tag)
-                            .frame(width: unit, height: row)
-                    }
-                }
-                HStack(spacing: gap) {
-                    VirtualStick(controller: controller)
-                        .frame(width: unit * 3 + gap * 2, height: row * 3 + gap * 2)
-                    ZStack {
-                        key(.y, "Y", width: unit, height: row).offset(y: -(row + gap))
-                        key(.x, "X", width: unit, height: row).offset(x: -(unit + gap))
-                        key(.b, "B", width: unit, height: row).offset(x: unit + gap)
-                        key(.a, "A", width: unit, height: row).offset(y: row + gap)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                .frame(height: row * 3 + gap * 2)
+            Group {
+                if wide { wideBody(geo.size) } else { tallBody(geo.size) }
             }
             // Pinned to the top under a picture; centred when it has a whole half to itself.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: rowHeight == nil ? .center : .top)
+            .coordinateSpace(name: "pad")
+            .onPreferenceChange(KeyFramesKey.self) { keyFrames = $0 }
+            .overlay(KeyTouchOverlay(frames: keyFrames, keys: ControllerView.keyByCode,
+                                     onPress: { press($0, true) }, onRelease: { press($0, false) },
+                                     onPressedChange: { pressedCodes = $0 }))
         }
-        .frame(height: rowHeight.map { ControllerView.height(rowHeight: $0) })
-        .onAppear { controller.setVirtualShown(true) }
-        .onDisappear { controller.setVirtualShown(false) }
+        .frame(height: rowHeight.map { ControllerView.height(rowHeight: $0, wide: wide) })
     }
 
-    private func key(_ control: Control, _ text: String? = nil, symbol: String? = nil, width: CGFloat, height: CGFloat) -> some View {
-        PadKey(controller: controller, control: control, text: text, symbol: symbol)
-            .frame(width: width, height: height)
+    /// Keys on top, stick and diamond under them.
+    private func tallBody(_ size: CGSize) -> some View {
+        let unit = (size.width - gap * 6) / 7
+        // Keys stay key-shaped: however tall the column, a row is at most 1.2 keys high.
+        let row = min(unit * 1.2, rowHeight ?? max(28, (size.height - gap * 3) / 4))
+        return VStack(spacing: gap) {
+            HStack(spacing: gap) {
+                ForEach(ControllerView.topRow, id: \.0) { control, tag in
+                    key(control, tag: tag).frame(width: unit, height: row)
+                }
+            }
+            HStack(spacing: gap) {
+                VirtualStick(controller: controller)
+                    .frame(width: unit * 3 + gap * 2, height: row * 3 + gap * 2)
+                diamond(unit: unit, row: row)
+            }
+            .frame(height: row * 3 + gap * 2)
+        }
+    }
+
+    /// One band: stick, the seven keys, diamond.
+    private func wideBody(_ size: CGSize) -> some View {
+        let row = rowHeight ?? max(28, (size.height - gap * 2) / 3)
+        let band = row * 3 + gap * 2
+        let unit = (size.width - band * 2 - gap * 2 - gap * 6) / 7
+        let keyHeight = min(band, unit * 1.2)
+        return HStack(spacing: gap) {
+            VirtualStick(controller: controller).frame(width: band, height: band)
+            HStack(spacing: gap) {
+                ForEach(ControllerView.topRow, id: \.0) { control, tag in
+                    key(control, tag: tag).frame(width: unit, height: keyHeight)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            diamond(unit: row, row: row).frame(width: band, height: band)
+        }
+        .frame(height: band)
+    }
+
+    private func diamond(unit: CGFloat, row: CGFloat) -> some View {
+        ZStack {
+            key(.y, "Y").frame(width: unit, height: row).offset(y: -(row + gap))
+            key(.x, "X").frame(width: unit, height: row).offset(x: -(unit + gap))
+            key(.b, "B").frame(width: unit, height: row).offset(x: unit + gap)
+            key(.a, "A").frame(width: unit, height: row).offset(y: row + gap)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func key(_ control: Control, _ text: String? = nil, tag: String? = nil) -> some View {
+        let code = ControllerView.code(control)
+        return PadKey(action: controller.profile[control], text: text, tag: tag, pressed: pressedCodes.contains(code))
+            .background(GeometryReader { geo in
+                Color.clear.preference(key: KeyFramesKey.self, value: [code: geo.frame(in: .named("pad"))])
+            })
+            .accessibilityLabel("\(control.label): \(controller.profile[control].label)")
+    }
+
+    private func press(_ key: Key, _ down: Bool) {
+        guard let control = ControllerView.controlByCode[key.code] else { return }
+        if down { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+        controller.setVirtual(control, pressed: down)
     }
 }
 
@@ -133,19 +189,14 @@ private struct VirtualStick: View {
     }
 }
 
-/// One pad button in the key strip's style: held while the finger is down, its binding
-/// written under its name when there is room. Dim when it does nothing.
+/// One pad key in the key strip's style. A face button shows its letter with the binding
+/// under it; a programmable key shows the binding as its label with a small tag saying
+/// which pad control it is. Dim when it does nothing.
 private struct PadKey: View {
-    @ObservedObject var controller: ControllerBridge
-    let control: Control
+    let action: ControlAction
     var text: String? = nil
-    var symbol: String? = nil
-    /// Programmable key: the binding is the label, this small tag says which control it is.
     var tag: String? = nil
-    @State private var pressed = false
-    private let haptic = UIImpactFeedbackGenerator(style: .light)
-
-    private var action: ControlAction { controller.profile[control] }
+    let pressed: Bool
 
     var body: some View {
         GeometryReader { geo in
@@ -161,17 +212,15 @@ private struct PadKey: View {
                             .font(.caption.weight(.medium))
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
-                    } else if let symbol {
-                        Image(systemName: symbol).font(.body.weight(.medium))
                     } else if let text {
                         Text(text).font(.body.weight(.medium))
-                    }
-                    if tag == nil, geo.size.height >= 40, action != .none {
-                        Text(action.shortLabel)
-                            .font(.system(size: 9))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                            .opacity(0.7)
+                        if geo.size.height >= 40, action != .none {
+                            Text(action.shortLabel)
+                                .font(.system(size: 9))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                                .opacity(0.7)
+                        }
                     }
                 }
                 .foregroundStyle(pressed ? Color.white : Color.primary)
@@ -179,21 +228,5 @@ private struct PadKey: View {
             }
         }
         .opacity(action == .none ? 0.45 : 1)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    if !pressed {
-                        pressed = true
-                        haptic.impactOccurred()
-                        controller.setVirtual(control, pressed: true)
-                    }
-                }
-                .onEnded { _ in
-                    pressed = false
-                    controller.setVirtual(control, pressed: false)
-                }
-        )
-        .accessibilityLabel("\(control.label): \(action.label)")
     }
 }
