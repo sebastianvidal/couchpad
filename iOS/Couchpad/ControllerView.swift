@@ -160,17 +160,23 @@ struct ControllerView: View {
         let band: CGFloat
         let faceUnit: CGFloat   // a face button's width
         let row: CGFloat        // and its height
+        let edge: CGFloat       // air outside the stick and the diamond, off the band's ends
         if let rowHeight {
-            row = rowHeight
-            band = row * 3 + gap * 2
+            // The stick is the band's full height already; the face buttons are 10% bigger
+            // than a row (the diamond is still well inside the band's height).
+            band = rowHeight * 3 + gap * 2
+            row = rowHeight * 1.1
             faceUnit = row
+            edge = 10
         } else {
             let keysWidth = 7 * 44 + 6 * gap
             band = max(0, min(size.height, max(size.width * 0.22, min(size.width * 0.3, (size.width - gap * 2 - keysWidth) / 2))))
             faceUnit = (band - gap * 2) / 3
             row = min(faceUnit * 1.2, (band - gap * 1.2) / 2.2)
+            edge = 0
         }
-        let middle = size.width - band * 2 - gap * 2
+        let diamondWidth = rowHeight == nil ? band : faceUnit * 3 + gap * 2
+        let middle = size.width - band - diamondWidth - gap * 2 - edge * 2
         let unit = (middle - gap * 6) / 7
         // With the strip: bar + gap + two key rows + gap fill the band exactly (filling, up
         // to key shape). Without it, the programmable keys stay key-shaped, centred in the band.
@@ -191,8 +197,9 @@ struct ControllerView: View {
                 }
             }
             .frame(width: middle, height: band, alignment: showKeys && rowHeight != nil ? .top : .center)
-            diamond(unit: faceUnit, row: row).frame(width: band, height: band)
+            diamond(unit: faceUnit, row: row).frame(width: diamondWidth, height: band)
         }
+        .padding(.horizontal, edge)
         .frame(height: band)
     }
 
