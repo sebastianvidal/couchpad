@@ -14,7 +14,6 @@ struct TrackpadView: UIViewRepresentable {
     var videoSize = CGSize.zero
     /// Size of the picture underneath, whether or not touches point at it; .zero without one.
     var pictureSize = CGSize.zero
-    var videoTopLeading = false
     var onZoom: ((CGFloat, CGPoint) -> Void)?
 
     func makeUIView(context: Context) -> TrackpadUIView {
@@ -27,7 +26,6 @@ struct TrackpadView: UIViewRepresentable {
     func updateUIView(_ uiView: TrackpadUIView, context: Context) {
         uiView.videoSize = videoSize
         uiView.pictureSize = pictureSize
-        uiView.videoTopLeading = videoTopLeading
         uiView.onZoom = onZoom
         if pictureSize == .zero { uiView.resetZoom() }   // the picture went away; the next one starts at 1×
     }
@@ -38,8 +36,6 @@ final class TrackpadUIView: UIView {
     weak var settings: AppSettings?
     var videoSize = CGSize.zero
     var pictureSize = CGSize.zero
-    /// Whether the picture is pinned to the top-left corner rather than centered.
-    var videoTopLeading = false
     var onZoom: ((CGFloat, CGPoint) -> Void)?
     private var absolute: Bool { videoSize.width > 0 && videoSize.height > 0 }
 
@@ -60,7 +56,6 @@ final class TrackpadUIView: UIView {
         guard size.width > 0, size.height > 0, bounds.width > 0, bounds.height > 0 else { return bounds }
         let scale = min(bounds.width / size.width, bounds.height / size.height)
         let fitted = CGSize(width: size.width * scale, height: size.height * scale)
-        if videoTopLeading { return CGRect(origin: .zero, size: fitted) }
         return CGRect(x: (bounds.width - fitted.width) / 2, y: (bounds.height - fitted.height) / 2, width: fitted.width, height: fitted.height)
     }
 

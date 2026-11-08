@@ -210,53 +210,60 @@ struct ContentView: View {
         return min(58, max(42, unit * 0.65))
     }
 
+    /// The bar sits at the bottom, where the screen layout keeps its own, so switching the
+    /// picture on and off doesn't move it.
     private var portraitBody: some View {
         VStack(spacing: 8) {
-            topBar
             trackpad
             if !inputState.keyboardShown {
                 mouseButtons.frame(height: 44)
             }
             KeyStripView(client: client, state: inputState, rowHeight: portraitRowHeight)
                 .background(keyInput)   // zero footprint: it must not add height below the keys
+            plainBar
         }
+        .padding(.top, 4)
     }
 
     /// Trackpad on one side (your choice), everything else in a column on the other. The key
     /// rows stretch to use the column's full height, so with the iOS keyboard hidden the keys
     /// are large.
-    /// Nothing here moves for the keyboard: the whole body ignores it, and instead the
-    /// trackpad is inset by the keyboard's height while it is up. The key block is sized to
-    /// end on that same line, so block bottom, trackpad bottom and keyboard top coincide.
+    /// Nothing here moves for the keyboard: the whole body ignores it, and instead everything
+    /// is inset by the keyboard's height while it is up, so the bar at the bottom sits just
+    /// above the keyboard (as in the screen layout) and the key block is sized to end on the
+    /// line above the bar.
     private var landscapeBody: some View {
-        VStack(spacing: 6) {
-            topBar
-            GeometryReader { geo in
-                // Distance from our bottom edge up to the keyboard's top edge, in the same coordinates.
-                let bottom = geo.frame(in: .global).maxY
-                let keyboardTop = keyboardTops[sizeKey] ?? (bottom - geo.size.height * 0.40)
-                let inset = max(0, bottom - keyboardTop + 8)   // 8pt of air above the keyboard, like every other gap
+        GeometryReader { geo in
+            // Distance from our bottom edge up to the keyboard's top edge, in the same coordinates.
+            let bottom = geo.frame(in: .global).maxY
+            let keyboardTop = keyboardTops[sizeKey] ?? (bottom - geo.size.height * 0.40)
+            let inset = inputState.keyboardShown ? max(0, bottom - keyboardTop + 8) : 0   // 8pt of air above the keyboard, like every other gap
+            let above = geo.size.height - inset - 36 - 6   // what is left over the bar and its gap
+            VStack(spacing: 6) {
                 HStack(spacing: 10) {
                     if settings.trackpadOnRight {
-                        landscapeControls(width: max(300, geo.size.width * 0.42), above: geo.size.height - inset)
-                        trackpad.padding(.bottom, inputState.keyboardShown ? inset : 0)
+                        landscapeControls(width: max(300, geo.size.width * 0.42), above: above)
+                        trackpad
                     } else {
-                        trackpad.padding(.bottom, inputState.keyboardShown ? inset : 0)
-                        landscapeControls(width: max(300, geo.size.width * 0.42), above: geo.size.height - inset)
+                        trackpad
+                        landscapeControls(width: max(300, geo.size.width * 0.42), above: above)
                     }
                 }
+                plainBar
             }
+            .padding(.bottom, inset)
         }
+        .padding(.top, 4)
     }
 
-    /// The key block is anchored at the top with fixed row heights and the column ignores the
-    /// keyboard, so the keys never move: the iOS keyboard simply covers the space below them.
-    /// That space holds the mouse buttons while the keyboard is hidden.
+    /// The key block is anchored at the top with fixed row heights, so the keys never move
+    /// when the keyboard comes up; the mouse buttons take the space below them while the
+    /// keyboard is hidden.
     private func landscapeControls(width: CGFloat, above: CGFloat) -> some View {
-        // Rows fill the space above the keyboard line exactly: bar + gap + 3 rows + 2 gaps = `above`.
+        // Rows fill the column exactly: F-key bar + gap + 3 rows + 2 gaps = `above`.
         let rowHeight = min(80, max(36, (above - 28 - 3 * 4) / 3))
         // On a large display (an unfolded iPhone Duo) the rows hit their cap and leave room
-        // above the keyboard line; the mouse buttons take it rather than leaving a hole.
+        // at the bottom of the column; the mouse buttons take it rather than leaving a hole.
         let spare = above - (28 + 4 + 3 * rowHeight + 2 * 4) - 6
         return VStack(spacing: 6) {
             KeyStripView(client: client, state: inputState, rowHeight: rowHeight,
@@ -268,7 +275,7 @@ struct ContentView: View {
                 if spare >= 56 {
                     mouseButtons.frame(height: spare)
                 }
-                Spacer(minLength: 0)   // keeps the column pinned to the top; the keyboard covers this
+                Spacer(minLength: 0)   // keeps the column pinned to the top
             }
         }
         .frame(width: width)
@@ -442,8 +449,9 @@ struct ContentView: View {
             .opacity(0.01)
     }
 
-    /// Same buttons as the screen bar (`barButton`): flat squares, no accent tint.
-    private var topBar: some View {
+    /// The bar without the picture: same place (the bottom) and same buttons (`barButton`)
+    /// as `screenBar`, with the connection status spelled out where the mouse buttons go.
+    private var plainBar: some View {
         HStack(spacing: 8) {
             Circle()
                 .fill(client.isConnected ? Color.green : Color.orange)
@@ -478,7 +486,6 @@ struct ContentView: View {
             barButton("gearshape", label: "Settings") { showSettings = true }
         }
         .frame(height: 36)
-        .padding(.top, 4)
     }
 
     private var trackpad: some View { trackpadPane(picture: true) }
@@ -487,10 +494,9 @@ struct ContentView: View {
     /// asks for it (the half-open layout shows a second, plain trackpad).
     private func trackpadPane(picture: Bool) -> some View {
         let showPicture = picture && screenOn && client.isConnected
-        // With the key panel out, the picture hugs the top-left corner so the panel sits in
-        // the letterbox space instead of over the picture (which matters once the iOS
-        // keyboard has squeezed it).
-        return ZStack(alignment: showKeysPanel && showPicture ? .topLeading : .center) {
+        // The picture stays centred whatever pops up over it: the key panel floats over
+        // the picture (and can be dragged aside) rather than nudging it into a corner.
+        return ZStack {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
             if showPicture {
@@ -499,7 +505,7 @@ struct ContentView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             TrackpadView(client: client, settings: settings, videoSize: showPicture && settings.tapToPoint ? screen.videoSize : .zero,
-                         pictureSize: showPicture ? screen.videoSize : .zero, videoTopLeading: showKeysPanel,
+                         pictureSize: showPicture ? screen.videoSize : .zero,
                          onZoom: { zoom, pan in screenZoom = zoom; screenPan = pan })
                 .background(
                     GeometryReader { geo in
