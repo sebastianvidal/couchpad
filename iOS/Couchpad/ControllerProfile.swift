@@ -17,6 +17,16 @@ enum ControlAction: Codable, Equatable, Hashable {
         case .mouseLook: return "Mouse look"
         }
     }
+
+    /// Fits on a key cap.
+    var shortLabel: String {
+        switch self {
+        case .mouseLeft: return "L click"
+        case .mouseRight: return "R click"
+        case .mouseLook: return "look"
+        default: return label
+        }
+    }
 }
 
 /// Every control on an extended gamepad, as the user sees it.

@@ -1,135 +1,106 @@
 import SwiftUI
 import UIKit
 
-/// The on-screen controller: a floating 8-way stick on the left, a look surface on the
-/// right with the buttons over it. Every control reports to `ControllerBridge`, so the same
-/// profile that drives a physical pad drives this one, and each button shows what it is
-/// bound to. Sits over the computer's picture when that is on.
+/// The on-screen controller, in the key strip's place and style: a stick fixed on the left,
+/// the face buttons in a diamond on the right, and a row of seven programmable keys along
+/// the top (the pad's bumpers, triggers, stick clicks and menu, each showing its binding). Like a hand-held console, the picture (or trackpad) sits above it. Every
+/// control reports to `ControllerBridge`, so the profile that drives a physical pad drives
+/// this one, and each button shows what it is bound to.
 struct ControllerView: View {
     @ObservedObject var controller: ControllerBridge
-    @State private var showBindings = false
+    /// Height of one of the four rows; nil fills whatever height the parent gives.
+    var rowHeight: CGFloat? = nil
+
+    private let gap: CGFloat = 4
+    private let columns: CGFloat = 7
+    private let rows: CGFloat = 4
+    /// The programmable row: labelled by what they do, tagged with the pad control they are.
+    static let topRow: [(Control, String)] = [(.l1, "L1"), (.l2, "L2"), (.l3, "L3"), (.menu, "menu"), (.options, "opt"), (.r1, "R1"), (.r2, "R2")]
+
+    /// Fixed total height for a given row height, so the parent can lay out around it.
+    static func height(rowHeight: CGFloat) -> CGFloat { 4 * rowHeight + 3 * 4 }
 
     var body: some View {
         GeometryReader { geo in
-            let leftWidth = geo.size.width * 0.45
-            let rightWidth = geo.size.width - leftWidth
-            let button = min(72, max(44, rightWidth * 0.28))
-            HStack(spacing: 0) {
-                VirtualStick(controller: controller, radius: min(64, leftWidth * 0.3))
-                    .frame(width: leftWidth)
-                LookSurface(controller: controller)
-            }
-            // Triggers above bumpers in the corners, the way they sit on a pad, stacked so
-            // they stay clear of the menu row even in a narrow pane.
-            .overlay(alignment: .topLeading) {
-                VStack(spacing: 8) {
-                    PadButton(controller: controller, control: .l2, text: "L2", shape: .capsule(width: button * 0.85))
-                    PadButton(controller: controller, control: .l1, text: "L1", shape: .capsule(width: button * 0.85))
-                }
-                .padding(10)
-            }
-            .overlay(alignment: .topTrailing) {
-                VStack(spacing: 8) {
-                    PadButton(controller: controller, control: .r2, text: "R2", shape: .capsule(width: button * 0.85))
-                    PadButton(controller: controller, control: .r1, text: "R1", shape: .capsule(width: button * 0.85))
-                }
-                .padding(10)
-            }
-            .overlay(alignment: .top) {
-                HStack(spacing: 8) {
-                    PadButton(controller: controller, control: .options, symbol: "ellipsis", shape: .capsule(width: 44))
-                    Button {
-                        showBindings = true
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "slider.horizontal.3")
-                            Text(controller.profile.name).lineLimit(1)
-                        }
-                        .font(.caption.weight(.medium))
-                        .padding(.horizontal, 10)
-                        .frame(height: 30)
-                        .background(Color(.secondarySystemBackground).opacity(0.9), in: Capsule())
+            let unit = (geo.size.width - gap * (columns - 1)) / columns
+            // Keys stay key-shaped: however tall the column, a row is at most 1.2 keys high.
+            let row = min(unit * 1.2, rowHeight ?? max(28, (geo.size.height - gap * (rows - 1)) / rows))
+            VStack(spacing: gap) {
+                HStack(spacing: gap) {
+                    ForEach(ControllerView.topRow, id: \.0) { control, tag in
+                        PadKey(controller: controller, control: control, tag: tag)
+                            .frame(width: unit, height: row)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Controller bindings")
-                    PadButton(controller: controller, control: .menu, symbol: "line.3.horizontal", shape: .capsule(width: 44))
                 }
-                .padding(.top, 10)
-            }
-            .overlay(alignment: .bottomTrailing) {
-                let step = button * 0.95
-                ZStack {
-                    PadButton(controller: controller, control: .y, text: "Y", shape: .circle(button)).offset(y: -step)
-                    PadButton(controller: controller, control: .x, text: "X", shape: .circle(button)).offset(x: -step)
-                    PadButton(controller: controller, control: .b, text: "B", shape: .circle(button)).offset(x: step)
-                    PadButton(controller: controller, control: .a, text: "A", shape: .circle(button)).offset(y: step)
+                HStack(spacing: gap) {
+                    VirtualStick(controller: controller)
+                        .frame(width: unit * 3 + gap * 2, height: row * 3 + gap * 2)
+                    ZStack {
+                        key(.y, "Y", width: unit, height: row).offset(y: -(row + gap))
+                        key(.x, "X", width: unit, height: row).offset(x: -(unit + gap))
+                        key(.b, "B", width: unit, height: row).offset(x: unit + gap)
+                        key(.a, "A", width: unit, height: row).offset(y: row + gap)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(width: button + 2 * step, height: button + 2 * step)
-                .padding(12)
+                .frame(height: row * 3 + gap * 2)
             }
+            // Pinned to the top under a picture; centred when it has a whole half to itself.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: rowHeight == nil ? .center : .top)
         }
+        .frame(height: rowHeight.map { ControllerView.height(rowHeight: $0) })
         .onAppear { controller.setVirtualShown(true) }
         .onDisappear { controller.setVirtualShown(false) }
-        .sheet(isPresented: $showBindings) {
-            NavigationStack {
-                ControllerBindingsView(controller: controller)
-                    .toolbar { Button("Done") { showBindings = false } }
-            }
-        }
+    }
+
+    private func key(_ control: Control, _ text: String? = nil, symbol: String? = nil, width: CGFloat, height: CGFloat) -> some View {
+        PadKey(controller: controller, control: control, text: text, symbol: symbol)
+            .frame(width: width, height: height)
     }
 }
 
-/// A floating stick: the base appears where the finger lands, the knob follows it, and the
-/// direction (8-way, so diagonals press two keys) is read from the angle once the finger
-/// is far enough from where it started.
+/// A stick in a key-styled well: the knob follows the thumb and the direction (8-way, so
+/// diagonals press two keys) is read from its angle once it is far enough from centre.
 private struct VirtualStick: View {
     @ObservedObject var controller: ControllerBridge
-    let radius: CGFloat
-
-    @State private var origin: CGPoint?
-    @State private var knob = CGPoint.zero   // offset from origin, clamped to the radius
+    @State private var knob = CGPoint.zero   // offset from centre, clamped to the travel
+    @State private var active = false
     @State private var held = Set<Control>()
     private let haptic = UISelectionFeedbackGenerator()
 
     var body: some View {
         GeometryReader { geo in
+            let side = min(geo.size.width, geo.size.height)
+            let knobSize = side * 0.42
+            let travel = (side - knobSize) / 2
             ZStack {
-                Color.clear
-                if let origin {
-                    Circle()
-                        .strokeBorder(Color.primary.opacity(0.25), lineWidth: 2)
-                        .background(Circle().fill(Color(.secondarySystemBackground).opacity(0.5)))
-                        .frame(width: radius * 2, height: radius * 2)
-                        .position(origin)
-                    Circle()
-                        .fill(Color.accentColor.opacity(0.85))
-                        .frame(width: radius * 0.9, height: radius * 0.9)
-                        .position(x: origin.x + knob.x, y: origin.y + knob.y)
-                } else {
-                    Circle()
-                        .strokeBorder(Color.primary.opacity(0.3), style: StrokeStyle(lineWidth: 2, dash: [6, 6]))
-                        .frame(width: radius * 2, height: radius * 2)
-                        .overlay(Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-                            .font(.title3).foregroundStyle(Color.primary.opacity(0.4)))
-                        .position(x: geo.size.width / 2, y: geo.size.height * 0.62)
-                }
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color(.secondarySystemBackground))
+                Circle()
+                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1.5)
+                    .frame(width: side * 0.86, height: side * 0.86)
+                Circle()
+                    .fill(active ? Color.accentColor : Color.primary.opacity(0.25))
+                    .frame(width: knobSize, height: knobSize)
+                    .offset(x: knob.x, y: knob.y)
             }
+            .frame(width: side, height: side)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .local)
                     .onChanged { value in
-                        if origin == nil { origin = value.startLocation; haptic.prepare() }
-                        guard let origin else { return }
-                        var dx = value.location.x - origin.x
-                        var dy = value.location.y - origin.y
+                        if !active { active = true; haptic.prepare() }
+                        var dx = value.location.x - geo.size.width / 2
+                        var dy = value.location.y - geo.size.height / 2
                         let distance = hypot(dx, dy)
-                        if distance > radius { dx *= radius / distance; dy *= radius / distance }
+                        if distance > travel { dx *= travel / distance; dy *= travel / distance }
                         knob = CGPoint(x: dx, y: dy)
-                        press(directions(dx: dx, dy: dy, distance: distance))
+                        press(directions(dx: dx, dy: dy, distance: distance, travel: travel))
                     }
                     .onEnded { _ in
                         press([])
-                        origin = nil
+                        active = false
                         knob = .zero
                     }
             )
@@ -138,8 +109,8 @@ private struct VirtualStick: View {
     }
 
     /// Eight 45° sectors, centred on the four directions and the diagonals between them.
-    private func directions(dx: CGFloat, dy: CGFloat, distance: CGFloat) -> Set<Control> {
-        guard distance > radius * 0.3 else { return [] }
+    private func directions(dx: CGFloat, dy: CGFloat, distance: CGFloat, travel: CGFloat) -> Set<Control> {
+        guard distance > travel * 0.3 else { return [] }
         let degrees = (atan2(-dy, dx) * 180 / .pi + 360 + 22.5).truncatingRemainder(dividingBy: 360)
         switch Int(degrees / 45) {
         case 0: return [.leftStickRight]
@@ -162,74 +133,51 @@ private struct VirtualStick: View {
     }
 }
 
-/// Drag anywhere here to look around (when the right stick is bound to mouse look). The
-/// buttons sit over it and take their own touches.
-private struct LookSurface: View {
-    @ObservedObject var controller: ControllerBridge
-    @State private var last: CGPoint?
-
-    private var looks: Bool { controller.profile[.rightStick] == .mouseLook }
-
-    var body: some View {
-        Color.clear
-            .contentShape(Rectangle())
-            .overlay {
-                if looks, last == nil {
-                    Image(systemName: "hand.draw")
-                        .font(.title3)
-                        .foregroundStyle(Color.primary.opacity(0.35))
-                }
-            }
-            .gesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .local)
-                    .onChanged { value in
-                        if let last {
-                            controller.addVirtualLook(CGPoint(x: value.location.x - last.x, y: value.location.y - last.y))
-                        }
-                        last = value.location
-                    }
-                    .onEnded { _ in last = nil }
-            )
-            .accessibilityLabel("Look surface")
-    }
-}
-
-/// One on-screen button: held while the finger is down, with its current binding written
-/// under its name so the layout explains itself. Dim when it does nothing.
-private struct PadButton: View {
-    enum Shape { case circle(CGFloat), capsule(width: CGFloat) }
-
+/// One pad button in the key strip's style: held while the finger is down, its binding
+/// written under its name when there is room. Dim when it does nothing.
+private struct PadKey: View {
     @ObservedObject var controller: ControllerBridge
     let control: Control
     var text: String? = nil
     var symbol: String? = nil
-    let shape: Shape
+    /// Programmable key: the binding is the label, this small tag says which control it is.
+    var tag: String? = nil
     @State private var pressed = false
     private let haptic = UIImpactFeedbackGenerator(style: .light)
 
     private var action: ControlAction { controller.profile[control] }
 
     var body: some View {
-        ZStack {
-            background
-            VStack(spacing: 1) {
-                if let symbol {
-                    Image(systemName: symbol).font(.subheadline.weight(.semibold))
-                } else if let text {
-                    Text(text).font(isCircle ? .title3.weight(.semibold) : .subheadline.weight(.semibold))
+        GeometryReader { geo in
+            ZStack {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(pressed ? Color.accentColor : Color(.secondarySystemBackground))
+                VStack(spacing: 0) {
+                    if let tag {
+                        if geo.size.height >= 40 {
+                            Text(tag).font(.system(size: 9)).opacity(0.6)
+                        }
+                        Text(action == .none ? "–" : action.shortLabel)
+                            .font(.caption.weight(.medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                    } else if let symbol {
+                        Image(systemName: symbol).font(.body.weight(.medium))
+                    } else if let text {
+                        Text(text).font(.body.weight(.medium))
+                    }
+                    if tag == nil, geo.size.height >= 40, action != .none {
+                        Text(action.shortLabel)
+                            .font(.system(size: 9))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            .opacity(0.7)
+                    }
                 }
-                if isCircle, action != .none {
-                    Text(action.label)
-                        .font(.system(size: 9))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .opacity(0.8)
-                }
+                .foregroundStyle(pressed ? Color.white : Color.primary)
+                .padding(.horizontal, 2)
             }
-            .foregroundStyle(pressed ? Color.white : Color.primary)
-            .padding(.horizontal, 4)
         }
-        .frame(width: size.width, height: size.height)
         .opacity(action == .none ? 0.45 : 1)
         .contentShape(Rectangle())
         .gesture(
@@ -247,23 +195,5 @@ private struct PadButton: View {
                 }
         )
         .accessibilityLabel("\(control.label): \(action.label)")
-    }
-
-    private var isCircle: Bool { if case .circle = shape { return true } else { return false } }
-
-    private var size: CGSize {
-        switch shape {
-        case .circle(let d): return CGSize(width: d, height: d)
-        case .capsule(let w): return CGSize(width: w, height: 34)
-        }
-    }
-
-    private var fill: Color { pressed ? Color.accentColor : Color(.secondarySystemBackground).opacity(0.9) }
-
-    @ViewBuilder private var background: some View {
-        switch shape {
-        case .circle: Circle().fill(fill)
-        case .capsule: Capsule().fill(fill)
-        }
     }
 }

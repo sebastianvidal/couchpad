@@ -128,11 +128,11 @@ struct ContentView: View {
         .onChange(of: isLandscape, initial: true) { _, landscape in
             // Sideways (a Backbone, say) the iOS keyboard would cover half the screen: start hidden.
             // `initial: true` covers launching already sideways, when onAppear sees no size class yet.
-            inputState.keyboardShown = !landscape && !screenOn
+            inputState.keyboardShown = !landscape && !screenOn && !settings.showController
         }
         .onChange(of: screenOn) { _, on in
             // With the picture up, the picture is the point: keyboard down until asked for.
-            inputState.keyboardShown = !on && !isLandscape
+            inputState.keyboardShown = !on && !isLandscape && !settings.showController
             showKeysPanel = false
             resetZoom()
         }
@@ -227,7 +227,7 @@ struct ContentView: View {
     private var portraitBody: some View {
         VStack(spacing: 6) {
             trackpad
-            KeyStripView(client: client, state: inputState, rowHeight: portraitRowHeight)
+            controls(rowHeight: portraitRowHeight)
             bar(picture: false)
         }
         .padding(.top, 4)
@@ -271,8 +271,12 @@ struct ContentView: View {
         // keys stay keys on a large display (an unfolded iPhone Duo).
         let rowHeight = min(120, max(36, (above - 28 - 3 * 4) / 3))
         return VStack(spacing: 6) {
-            KeyStripView(client: client, state: inputState, rowHeight: rowHeight,
-                         replacesRowsWhenExpanded: inputState.keyboardShown)
+            if settings.showController {
+                ControllerView(controller: controller, rowHeight: min(120, max(36, (above - 3 * 4) / 4)))
+            } else {
+                KeyStripView(client: client, state: inputState, rowHeight: rowHeight,
+                             replacesRowsWhenExpanded: inputState.keyboardShown)
+            }
             Spacer(minLength: 0)   // keeps the column pinned to the top
         }
         .frame(width: width)
@@ -319,11 +323,16 @@ struct ContentView: View {
     /// on demand, the same as the sideways screen layout.
     private func hingeControls(inset: CGFloat) -> some View {
         VStack(spacing: 6) {
-            trackpadPane(picture: false)
-                .overlay(alignment: .bottomTrailing) {
-                    if showKeysPanel { keysPanel }
-                }
-            bar(picture: true, keysToggle: true)
+            if settings.showController {
+                // Picture on one half, pad on the other: a hand-held console.
+                ControllerView(controller: controller)
+            } else {
+                trackpadPane(picture: false)
+                    .overlay(alignment: .bottomTrailing) {
+                        if showKeysPanel { keysPanel }
+                    }
+            }
+            bar(picture: true, keysToggle: !settings.showController)
         }
         .padding(.bottom, inset)
     }
@@ -348,6 +357,30 @@ struct ContentView: View {
             let spare = availableHeight - pictureHeight - 6
             let docked = spare >= 40 + 3 * 36
             let dockedRow = min(portraitRowHeight, (spare - 40) / 3)
+            if settings.showController {
+                // The pad never floats over the picture: the picture gives up the room.
+                // Upright it goes under the picture (a Game Boy); sideways, beside it.
+                VStack(spacing: 6) {
+                    if isLandscape {
+                        HStack(spacing: 10) {
+                            if settings.trackpadOnRight {
+                                ControllerView(controller: controller, rowHeight: min(120, max(36, (availableHeight - 12) / 4)))
+                                    .frame(width: max(300, geo.size.width * 0.42))
+                                trackpad
+                            } else {
+                                trackpad
+                                ControllerView(controller: controller, rowHeight: min(120, max(36, (availableHeight - 12) / 4)))
+                                    .frame(width: max(300, geo.size.width * 0.42))
+                            }
+                        }
+                    } else {
+                        trackpad
+                        ControllerView(controller: controller, rowHeight: portraitRowHeight)
+                    }
+                    bar(picture: true)
+                }
+                .padding(.bottom, inset)
+            } else {
             VStack(spacing: 6) {
                 trackpad
                     .overlay(alignment: .bottomTrailing) {
@@ -360,6 +393,7 @@ struct ContentView: View {
                 bar(picture: true, keysToggle: !docked)
             }
             .padding(.bottom, inset)
+            }
         }
         .padding(.top, 4)
     }
@@ -478,6 +512,15 @@ struct ContentView: View {
         .offset(keysOffset)
     }
 
+    /// The block under the picture: the key strip, or the pad when the controller is on.
+    @ViewBuilder private func controls(rowHeight: CGFloat) -> some View {
+        if settings.showController {
+            ControllerView(controller: controller, rowHeight: rowHeight)
+        } else {
+            KeyStripView(client: client, state: inputState, rowHeight: rowHeight)
+        }
+    }
+
     private var keyInput: some View {
         KeyInputView(client: client, state: inputState)
             .frame(width: 1, height: 1)
@@ -500,17 +543,9 @@ struct ContentView: View {
                     .aspectRatio(screen.videoSize == .zero ? nil : screen.videoSize.width / screen.videoSize.height, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
-            // The on-screen controller takes the trackpad's place; half open, it takes the
-            // flat half and leaves the picture's half a trackpad.
-            Group {
-                if settings.showController, !(hingeLayout && picture) {
-                    ControllerView(controller: controller)
-                } else {
-                    TrackpadView(client: client, settings: settings, videoSize: showPicture && settings.tapToPoint ? screen.videoSize : .zero,
-                                 pictureSize: showPicture ? screen.videoSize : .zero,
-                                 onZoom: { zoom, pan in screenZoom = zoom; screenPan = pan })
-                }
-            }
+            TrackpadView(client: client, settings: settings, videoSize: showPicture && settings.tapToPoint ? screen.videoSize : .zero,
+                         pictureSize: showPicture ? screen.videoSize : .zero,
+                         onZoom: { zoom, pan in screenZoom = zoom; screenPan = pan })
                 .background(
                     GeometryReader { geo in
                         Color.clear.onChange(of: geo.size, initial: true) { _, size in
@@ -677,7 +712,7 @@ struct ContentView: View {
                 }
                 Section("Controller") {
                     Toggle("On-screen controller", isOn: $settings.showController)
-                    Text("A stick on the left, a drag-to-look surface and buttons on the right, in place of the trackpad. Every button shows what it does; tap the preset name on it to change bindings.")
+                    Text("A stick and buttons in place of the key strip, under the picture or trackpad. Every button shows what it does; change them in Bindings below.")
                         .font(.footnote).foregroundStyle(.secondary)
                     if let name = controller.controllerName {
                         Label(name, systemImage: "gamecontroller.fill").foregroundStyle(.green)
