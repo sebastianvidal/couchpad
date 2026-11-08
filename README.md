@@ -69,12 +69,13 @@ carries the Mac's address, or type it into Settings → Connection on the phone.
 | On a Windows host          | The same keys show as Ctrl / Alt / Win; fn is hidden |
 | Keyboard button            | Hide / show the iOS keyboard to enlarge the trackpad |
 | Backbone / Bluetooth controller | Forwarded as keys and mouse. Every button and stick direction is bindable in Settings → Controller → Bindings; presets: FPS (WASD + mouse look), MapleStory (arrows, alt jump, ctrl attack), Arrows |
+| On-screen controller (d-pad button in the bar) | A floating 8-way stick on the left, a drag-to-look surface with A B X Y, L1 L2 R1 R2, menu and options on the right, over the picture when it is on. Same bindings and presets as a physical controller; each button shows what it does |
 
 Pointer speed, scroll speed, natural scrolling, tap-to-drag, three-finger swipes and
 controller look speed are in the gear menu.
 
-A controller attached to the iPhone works with any game that accepts keyboard and mouse,
-which is nearly all of them on a Mac. The computer does not see a gamepad: macOS has no
+A controller attached to the iPhone, or the on-screen one, works with any game that
+accepts keyboard and mouse, which is nearly all of them on a Mac. The computer does not see a gamepad: macOS has no
 public API for a virtual one.
 
 ## Pairing

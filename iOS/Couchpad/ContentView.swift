@@ -136,6 +136,11 @@ struct ContentView: View {
             showKeysPanel = false
             resetZoom()
         }
+        .onChange(of: settings.showController) { _, on in
+            // Thumbs on the controller: the iOS keyboard would only be in the way.
+            inputState.keyboardShown = !on && !screenOn && !isLandscape
+            showKeysPanel = false
+        }
         .onChange(of: screen.videoSize) { _, size in
             if size == .zero { resetZoom() }   // the stream stopped; the next picture starts at 1×
         }
@@ -413,6 +418,12 @@ struct ContentView: View {
                     inputState.keyboardShown.toggle()
                 }
             }
+            if client.isConnected {
+                barButton(settings.showController ? "dpad.fill" : "dpad",
+                          label: settings.showController ? "Hide the on-screen controller" : "Show the on-screen controller") {
+                    settings.showController.toggle()
+                }
+            }
             mouseButtons
             if controller.controllerName != nil {
                 Image(systemName: "gamecontroller.fill")
@@ -489,9 +500,17 @@ struct ContentView: View {
                     .aspectRatio(screen.videoSize == .zero ? nil : screen.videoSize.width / screen.videoSize.height, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
-            TrackpadView(client: client, settings: settings, videoSize: showPicture && settings.tapToPoint ? screen.videoSize : .zero,
-                         pictureSize: showPicture ? screen.videoSize : .zero,
-                         onZoom: { zoom, pan in screenZoom = zoom; screenPan = pan })
+            // The on-screen controller takes the trackpad's place; half open, it takes the
+            // flat half and leaves the picture's half a trackpad.
+            Group {
+                if settings.showController, !(hingeLayout && picture) {
+                    ControllerView(controller: controller)
+                } else {
+                    TrackpadView(client: client, settings: settings, videoSize: showPicture && settings.tapToPoint ? screen.videoSize : .zero,
+                                 pictureSize: showPicture ? screen.videoSize : .zero,
+                                 onZoom: { zoom, pan in screenZoom = zoom; screenPan = pan })
+                }
+            }
                 .background(
                     GeometryReader { geo in
                         Color.clear.onChange(of: geo.size, initial: true) { _, size in
@@ -657,6 +676,9 @@ struct ContentView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Controller") {
+                    Toggle("On-screen controller", isOn: $settings.showController)
+                    Text("A stick on the left, a drag-to-look surface and buttons on the right, in place of the trackpad. Every button shows what it does; tap the preset name on it to change bindings.")
+                        .font(.footnote).foregroundStyle(.secondary)
                     if let name = controller.controllerName {
                         Label(name, systemImage: "gamecontroller.fill").foregroundStyle(.green)
                     } else {

@@ -18,6 +18,8 @@ final class AppSettings: ObservableObject {
     /// Picture resolution as a share of the trackpad's pixels: 0 half, 1 two thirds, 2 full.
     /// Fewer pixels mean smaller frames, which is what latency over Wi-Fi comes down to.
     @Published var screenQuality: Int { didSet { save("screenQuality", screenQuality) } }
+    /// The on-screen controller (stick, look surface, buttons) in place of the trackpad.
+    @Published var showController: Bool { didSet { save("showController", showController) } }
 
     init() {
         let d = UserDefaults.standard
@@ -33,6 +35,7 @@ final class AppSettings: ObservableObject {
         showScreen = d.object(forKey: "showScreen") as? Bool ?? false
         tapToPoint = d.object(forKey: "tapToPoint") as? Bool ?? false
         screenQuality = d.object(forKey: "screenQuality") as? Int ?? 1
+        showController = d.object(forKey: "showController") as? Bool ?? false
     }
 
     private func save(_ key: String, _ value: Any) {

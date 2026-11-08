@@ -10,6 +10,10 @@ import GameController
 ///
 /// What each control does comes from the user's ControllerProfile (presets: FPS, MapleStory,
 /// Arrows), edited in Settings → Controller bindings.
+///
+/// The on-screen controller (`ControllerView`) is a second source of the same controls:
+/// it reports which virtual buttons are down and how far the look surface was dragged,
+/// and the same loop turns both into keys and mouse, so one profile drives both.
 @MainActor
 final class ControllerBridge: ObservableObject {
     @Published private(set) var controllerName: String?
@@ -28,6 +32,10 @@ final class ControllerBridge: ObservableObject {
 
     private var controller: GCController?
     private var timer: Timer?
+    /// The on-screen controller's state, merged with the physical pad's every tick.
+    private var virtualPressed = Set<Control>()
+    private var virtualLook = CGPoint.zero
+    private var virtualShown = false
     private var heldKeys = Set<Int>()
     private var leftDown = false
     private var rightDown = false
@@ -60,20 +68,53 @@ final class ControllerBridge: ObservableObject {
         self.controller = controller
         controllerName = controller.vendorName ?? "Controller"
         labels = ControllerBridge.labels(for: controller.extendedGamepad!)
-        timer?.invalidate()
-        // Poll at 60 Hz: simpler than per-element handlers and the sticks need a frame clock anyway.
+        startTicking()
+    }
+
+    private func detach() {
+        releaseAll()
+        controller = nil
+        controllerName = nil
+        labels = [:]
+        if !virtualShown { stopTicking() }
+    }
+
+    /// Poll at 60 Hz: simpler than per-element handlers and the sticks need a frame clock anyway.
+    private func startTicking() {
+        guard timer == nil else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
     }
 
-    private func detach() {
+    private func stopTicking() {
         timer?.invalidate()
         timer = nil
-        releaseAll()
-        controller = nil
-        controllerName = nil
-        labels = [:]
+    }
+
+    // MARK: On-screen controller
+
+    /// The on-screen controller is on screen: keep the loop running for it.
+    func setVirtualShown(_ shown: Bool) {
+        virtualShown = shown
+        if shown {
+            startTicking()
+        } else {
+            virtualPressed.removeAll()
+            virtualLook = .zero
+            if controller == nil { stopTicking(); releaseAll() }
+        }
+    }
+
+    /// A virtual button or stick direction went down or up.
+    func setVirtual(_ control: Control, pressed: Bool) {
+        if pressed { virtualPressed.insert(control) } else { virtualPressed.remove(control) }
+    }
+
+    /// The look surface was dragged by `delta` points; consumed by the next tick.
+    func addVirtualLook(_ delta: CGPoint) {
+        virtualLook.x += delta.x
+        virtualLook.y += delta.y
     }
 
     /// The pad's own names for its buttons, so the UI matches what is printed on the plastic.
@@ -116,62 +157,72 @@ final class ControllerBridge: ObservableObject {
     }
 
     private func tick() {
-        guard let pad = controller?.extendedGamepad, let client, client.isConnected else {
+        guard let client, client.isConnected, controller?.extendedGamepad != nil || virtualShown else {
             if !heldKeys.isEmpty || leftDown || rightDown { releaseAll() }
+            virtualLook = .zero
             return
+        }
+
+        var pressed = virtualPressed
+        var look = CGPoint.zero
+
+        if let pad = controller?.extendedGamepad {
+            let ls = pad.leftThumbstick
+            if ls.yAxis.value > 0.5 { pressed.insert(.leftStickUp) }
+            if ls.yAxis.value < -0.5 { pressed.insert(.leftStickDown) }
+            if ls.xAxis.value < -0.5 { pressed.insert(.leftStickLeft) }
+            if ls.xAxis.value > 0.5 { pressed.insert(.leftStickRight) }
+            if pad.dpad.up.isPressed { pressed.insert(.dpadUp) }
+            if pad.dpad.down.isPressed { pressed.insert(.dpadDown) }
+            if pad.dpad.left.isPressed { pressed.insert(.dpadLeft) }
+            if pad.dpad.right.isPressed { pressed.insert(.dpadRight) }
+            if pad.buttonA.isPressed { pressed.insert(.a) }
+            if pad.buttonB.isPressed { pressed.insert(.b) }
+            if pad.buttonX.isPressed { pressed.insert(.x) }
+            if pad.buttonY.isPressed { pressed.insert(.y) }
+            if pad.leftShoulder.isPressed { pressed.insert(.l1) }
+            if pad.rightShoulder.isPressed { pressed.insert(.r1) }
+            if pad.leftTrigger.isPressed { pressed.insert(.l2) }
+            if pad.rightTrigger.isPressed { pressed.insert(.r2) }
+            if pad.leftThumbstickButton?.isPressed == true { pressed.insert(.l3) }
+            if pad.rightThumbstickButton?.isPressed == true { pressed.insert(.r3) }
+            if pad.buttonMenu.isPressed { pressed.insert(.menu) }
+            if pad.buttonOptions?.isPressed == true { pressed.insert(.options) }
+
+            // The right stick is either mouse look or nothing (bind it to a key to use it as a button).
+            let rs = pad.rightThumbstick
+            switch profile[.rightStick] {
+            case .mouseLook:
+                let speed = CGFloat(settings?.controllerLookSpeed ?? 10)
+                let invert: CGFloat = settings?.controllerInvertY == true ? 1 : -1
+                look = CGPoint(x: curve(CGFloat(rs.xAxis.value)) * speed, y: curve(CGFloat(rs.yAxis.value)) * speed * invert)
+            case .key, .mouseLeft, .mouseRight:
+                if abs(rs.xAxis.value) > 0.5 || abs(rs.yAxis.value) > 0.5 { pressed.insert(.rightStick) }
+            case .none:
+                break
+            }
+        }
+
+        // The on-screen look surface is a finger on glass, so it moves like the trackpad:
+        // pointer speed, no inversion.
+        if virtualLook != .zero {
+            if case .mouseLook = profile[.rightStick] {
+                let speed = CGFloat(settings?.sensitivity ?? 2.5)
+                look.x += virtualLook.x * speed
+                look.y += virtualLook.y * speed
+            }
+            virtualLook = .zero
         }
 
         var keys = Set<Int>()
         var left = false, right = false
-        var look = CGPoint.zero
-
-        func apply(_ control: Control, _ pressed: Bool) {
-            guard pressed else { return }
+        for control in pressed {
             switch profile[control] {
             case .none, .mouseLook: break
             case .key(let code): keys.insert(code)
             case .mouseLeft: left = true
             case .mouseRight: right = true
             }
-        }
-
-        let ls = pad.leftThumbstick
-        apply(.leftStickUp, ls.yAxis.value > 0.5)
-        apply(.leftStickDown, ls.yAxis.value < -0.5)
-        apply(.leftStickLeft, ls.xAxis.value < -0.5)
-        apply(.leftStickRight, ls.xAxis.value > 0.5)
-        apply(.dpadUp, pad.dpad.up.isPressed)
-        apply(.dpadDown, pad.dpad.down.isPressed)
-        apply(.dpadLeft, pad.dpad.left.isPressed)
-        apply(.dpadRight, pad.dpad.right.isPressed)
-        apply(.a, pad.buttonA.isPressed)
-        apply(.b, pad.buttonB.isPressed)
-        apply(.x, pad.buttonX.isPressed)
-        apply(.y, pad.buttonY.isPressed)
-        apply(.l1, pad.leftShoulder.isPressed)
-        apply(.r1, pad.rightShoulder.isPressed)
-        apply(.l2, pad.leftTrigger.isPressed)
-        apply(.r2, pad.rightTrigger.isPressed)
-        apply(.l3, pad.leftThumbstickButton?.isPressed == true)
-        apply(.r3, pad.rightThumbstickButton?.isPressed == true)
-        apply(.menu, pad.buttonMenu.isPressed)
-        apply(.options, pad.buttonOptions?.isPressed == true)
-
-        // The right stick is either mouse look or nothing (bind it to a key to use it as a button).
-        let rs = pad.rightThumbstick
-        switch profile[.rightStick] {
-        case .mouseLook:
-            let speed = CGFloat(settings?.controllerLookSpeed ?? 10)
-            let invert: CGFloat = settings?.controllerInvertY == true ? 1 : -1
-            look = CGPoint(x: curve(CGFloat(rs.xAxis.value)) * speed, y: curve(CGFloat(rs.yAxis.value)) * speed * invert)
-        case .key(let code):
-            if abs(rs.xAxis.value) > 0.5 || abs(rs.yAxis.value) > 0.5 { keys.insert(code) }
-        case .mouseLeft:
-            if abs(rs.xAxis.value) > 0.5 || abs(rs.yAxis.value) > 0.5 { left = true }
-        case .mouseRight:
-            if abs(rs.xAxis.value) > 0.5 || abs(rs.yAxis.value) > 0.5 { right = true }
-        case .none:
-            break
         }
 
         for code in heldKeys.subtracting(keys) { client.send("k \(code) 0") }
