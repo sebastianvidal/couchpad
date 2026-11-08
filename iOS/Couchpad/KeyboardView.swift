@@ -16,9 +16,10 @@ struct Key: Identifiable {
 ///
 ///     esc  tab  fn   ⇧   ⌃   ⌥   ⌘
 ///
-/// Above it, a slim "F1–F12" bar (with Release while a modifier is held, and the iOS
-/// keyboard's button) swaps the row for two rows of function keys. Arrows and space come
-/// from the on-screen controller's bindings or the iOS keyboard. Docked under the trackpad
+/// Above it, a slim "F1–F12" bar (with Release while a modifier is held) swaps the row
+/// for two rows of function keys; the iOS keyboard is summoned from the bar at the bottom.
+/// Arrows and space come from the on-screen controller's bindings or the iOS keyboard.
+/// Docked under the trackpad
 /// or picture on the bar's ⌘ button, and inside the pad. Plain keys send key-down on touch
 /// and key-up on release, so holding works in games. Modifiers toggle and stay held.
 struct KeyStripView: View {
@@ -118,17 +119,6 @@ struct KeyStripView: View {
                 }
                 .buttonStyle(.plain)
             }
-            Button {
-                state.keyboardShown.toggle()
-            } label: {
-                Image(systemName: state.keyboardShown ? "keyboard.chevron.compact.down" : "keyboard")
-                    .padding(.horizontal, 12)
-                    .frame(height: barHeight)
-                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                    .foregroundStyle(Color.primary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(state.keyboardShown ? "Hide keyboard" : "Show keyboard")
         }
     }
 
