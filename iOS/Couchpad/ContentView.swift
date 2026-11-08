@@ -172,7 +172,12 @@ struct ContentView: View {
     /// The picture is only offered by Macs for now; the setting is remembered regardless.
     private var screenAvailable: Bool { client.hostPlatform == .mac }
     private var screenOn: Bool { settings.showScreen && screenAvailable }
-    private var hingeLayout: Bool { screenOn && client.isConnected && hingePartlyOpen }
+    /// Half open, split at the hinge: except upright while typing, when the keyboard covers
+    /// the flat half and the upright layout (picture shrunk by keyboard avoidance, key row
+    /// and bar above the keyboard) is the one that fits, exactly as unfolded.
+    private var hingeLayout: Bool {
+        screenOn && client.isConnected && hingePartlyOpen && !(inputState.keyboardShown && !isLandscape)
+    }
 
     /// Safe-area edges the layout takes for itself. The iPhone Duo keeps its status bar in a
     /// panel along one long edge (84pt on the folded display), and that panel stays reserved
