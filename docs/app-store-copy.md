@@ -32,7 +32,7 @@ TRACKPAD
 
 KEYBOARD
 • The regular iPhone keyboard, typing straight to the computer
-• The keys a phone doesn't have, always in a row on screen: esc, tab, fn, ⌘, ⌥, ⌃, ⇧ and F1–F12
+• The keys a phone doesn't have, in a row on screen: esc, tab, fn, ⌘, ⌥, ⌃, ⇧ and F1–F12 (on by default; the ⌘ button in the bar hides and shows it)
 • Modifiers toggle and stay held, so ⌘C, ⌥Tab and friends just work
 • Keys stay down while your finger does, so holding works in games
 
@@ -73,7 +73,7 @@ remote,mouse,touchpad,wireless,mac,pc,windows,tv,couch,controller,gamepad,cursor
 ## What's New (1.2)
 
 - On-screen controller: tap the d-pad button in the bar for a stick, A B X Y and seven programmable keys under the picture or trackpad, like a hand-held console. Upright it takes the bottom half of the screen, sideways a short band under the picture, and on a half-open iPhone Duo the flat half. Same bindings and presets as a physical controller (FPS, MapleStory, Arrows); every key shows what it does.
-- The key row (F1–F12, esc, tab, fn and the modifiers) is always there: above the controller, or under the picture or trackpad when the controller is off.
+- The key row (F1–F12, esc, tab, fn and the modifiers) sits above the controller, or under the picture or trackpad when the controller is off. On by default; the ⌘ button in the bar hides and shows it.
 - The keyboard button swaps the controller for the iPhone keyboard and back.
 - The old strip of arrow keys and space is gone: arrows come from the controller's bindings, space from the iPhone keyboard.
 - Works with Mac and Windows. With the Mac's picture on, update the Mac companion to 1.5 for a smooth picture while a game is fullscreen.
@@ -139,8 +139,8 @@ This build adds an on-screen game controller and replaces the old key strip with
 • Stick: move in all eight directions; diagonals should press two keys (WASD in the FPS preset). Does the knob follow your thumb, and does the direction change feel right (a tick each change)?
 • Buttons: hold A B X Y and the seven keys above; slide a finger from one key to the next (the first releases, the next presses). Press the stick and a button at the same time.
 • Bindings: Settings → Controller → Bindings. Switch presets (FPS, MapleStory, Arrows) and change one key; each on-screen key should show its new binding right away.
-• Key row: the F1–F12 bar plus esc, tab, fn and the modifiers are always above the controller (or under the picture with the controller off). Hold shift and press a key; tap Release. Open F1–F12 and back.
-• Keyboard: tap the keyboard button in the bar. The controller should give way to the iPhone keyboard with the key row above it, and come back when you hide the keyboard. Type a sentence.
+• Key row: the F1–F12 bar plus esc, tab, fn and the modifiers are above the controller (or under the picture with the controller off), on by default; the ⌘ button in the bar hides and shows them. Hold shift and press a key; tap Release. Open F1–F12 and back.
+• Keyboard: tap the keyboard button in the bar. The controller should give way to the iPhone keyboard with the key row (when on) above it, and come back when you hide the keyboard. Type a sentence.
 • Rotate the phone with the controller on; it must keep working without toggling it off and on.
 • Mac picture + fullscreen game (Mac companion 1.5): go fullscreen in a game; the picture should stay smooth. Tell me the game and whether it got worse than windowed.
 • Which games worked with which preset, and what you had to rebind.

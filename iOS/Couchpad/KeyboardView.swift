@@ -19,8 +19,8 @@ struct Key: Identifiable {
 /// Above it, a slim "F1–F12" bar (with Release while a modifier is held) swaps the row
 /// for two rows of function keys; the iOS keyboard is summoned from the bar at the bottom.
 /// Arrows and space come from the on-screen controller's bindings or the iOS keyboard.
-/// Always on screen: docked under the trackpad or picture, or at the top of the pad
-/// (half open while typing, floating over the picture instead). Plain keys send key-down on touch
+/// On by default, toggled by the bar's ⌘ button: docked under the trackpad or picture, or at
+/// the top of the pad (half open while typing, floating over the picture instead). Plain keys send key-down on touch
 /// and key-up on release, so holding works in games. Modifiers toggle and stay held.
 struct KeyStripView: View {
     @ObservedObject var client: Client

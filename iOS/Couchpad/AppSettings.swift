@@ -20,6 +20,9 @@ final class AppSettings: ObservableObject {
     @Published var screenQuality: Int { didSet { save("screenQuality", screenQuality) } }
     /// The on-screen controller (stick, look surface, buttons) in place of the trackpad.
     @Published var showController: Bool { didSet { save("showController", showController) } }
+    /// The key row (F1–F12 bar, esc, tab, fn, the modifiers): under the trackpad or picture,
+    /// or at the top of the pad. On by default; the bar's ⌘ button toggles it everywhere.
+    @Published var showKeyRow: Bool { didSet { save("showKeyRow", showKeyRow) } }
 
     init() {
         let d = UserDefaults.standard
@@ -36,6 +39,7 @@ final class AppSettings: ObservableObject {
         tapToPoint = d.object(forKey: "tapToPoint") as? Bool ?? false
         screenQuality = d.object(forKey: "screenQuality") as? Int ?? 1
         showController = d.object(forKey: "showController") as? Bool ?? false
+        showKeyRow = d.object(forKey: "showKeyRow") as? Bool ?? true
     }
 
     private func save(_ key: String, _ value: Any) {
