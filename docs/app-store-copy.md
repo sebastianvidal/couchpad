@@ -12,7 +12,7 @@ Trackpad & keyboard for Mac/PC
 
 ## Promotional text [170]
 
-Gaming on a Mac plugged into the TV? Leave the mouse and keyboard on the desk. Couchpad turns your iPhone into both, over Wi‑Fi, with nothing to sign up for.
+New: an on-screen game controller. A stick, buttons and keys you bind, under your Mac's screen on the phone. Trackpad and keyboard too, over Wi‑Fi, no sign-up.
 
 ## Description [4000]
 
