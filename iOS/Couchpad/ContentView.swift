@@ -23,7 +23,8 @@ struct ContentView: View {
     @State private var showSetup = false
     @State private var showScanner = false
     /// The bar's ⌘ button: the strip's compact row (F bar, esc, tab, fn, the modifiers),
-    /// in the pad when it is on, docked under the picture when the full strip is not there.
+    /// in the pad when it is on, docked under the trackpad or picture when the full strip
+    /// is not there (everywhere but sideways without the pad).
     @State private var showKeyRow = false
     /// A foldable held half open: the picture goes on the half that stands up, the controls
     /// on the half lying flat. Reported by the system; always false elsewhere.
@@ -124,22 +125,24 @@ struct ContentView: View {
                 landscapeKeyboardTops = json
             }
         }
-        .onChange(of: isLandscape, initial: true) { _, landscape in
-            // Sideways (a Backbone, say) the iOS keyboard would cover half the screen: start hidden.
+        .onChange(of: isLandscape, initial: true) { _, _ in
+            // The iOS keyboard starts hidden in every layout and comes up on demand (the bar's
+            // keyboard button, or the key row's): sideways it would cover half the screen,
+            // and upright the trackpad, the picture or the pad is the point.
             // `initial: true` covers launching already sideways, when onAppear sees no size class yet.
-            inputState.keyboardShown = !landscape && !screenOn && !settings.showController
+            inputState.keyboardShown = false
         }
-        .onChange(of: screenOn) { _, on in
-            // With the picture up, the picture is the point: keyboard down until asked for.
-            inputState.keyboardShown = !on && !isLandscape && !settings.showController
+        .onChange(of: screenOn) { _, _ in
+            inputState.keyboardShown = false
             resetZoom()
         }
         .onChange(of: settings.showController, initial: true) { _, on in
             // The pad's loop runs for as long as the setting is on, whichever layout is
             // showing it: tied to a view's appearance it died on every rotation.
             controller.setVirtualShown(on)
-            // Thumbs on the controller: the iOS keyboard would only be in the way.
-            inputState.keyboardShown = !on && !screenOn && !isLandscape
+            // Thumbs on the controller: the iOS keyboard would only be in the way; without
+            // it, the trackpad gets its full height until the keyboard is asked for.
+            inputState.keyboardShown = false
         }
         .onChange(of: screen.videoSize) { _, size in
             if size == .zero { resetZoom() }   // the stream stopped; the next picture starts at 1×
@@ -222,19 +225,21 @@ struct ContentView: View {
         return min(58, max(42, unit * 0.65))
     }
 
-    /// Same skeleton as the screen layout (trackpad above, the bar at the bottom, 6pt apart)
-    /// with the key strip in between, so toggling the picture moves nothing but the keys.
-    /// The pad takes the bottom half instead.
+    /// Same skeleton as the screen layout and the flat half of a half-open Duo: the trackpad
+    /// above the bar, 6pt apart, with the strip's compact row docked between them on demand
+    /// (the bar's ⌘ button), so toggling the picture moves nothing. The pad takes the bottom
+    /// half instead. Arrows and space are the sideways strip's; upright the iOS keyboard
+    /// has space and the stick or a swipe stands in for the arrows.
     private var portraitBody: some View {
         GeometryReader { geo in
             VStack(spacing: 6) {
                 trackpad
                 if settings.showController {
                     portraitPad(height: geo.size.height - 36 - 6)
-                } else {
-                    KeyStripView(client: client, state: inputState, rowHeight: portraitRowHeight)
+                } else if showKeyRow {
+                    keyRow
                 }
-                bar(picture: false)
+                bar(picture: false, keysToggle: true)
             }
         }
         .padding(.top, 4)
@@ -419,9 +424,10 @@ struct ContentView: View {
     /// The one bar every layout ends with, picture on or off, so every control keeps its
     /// place: the dot, the screen toggle, then (picture on) the keys and keyboard toggles,
     /// the mouse buttons, the controller mark, (picture off) the setup guide, and settings.
-    /// With the picture off the key strip carries its own keyboard toggle.
+    /// Where the full strip is on screen (sideways, no pad) it carries its own keyboard toggle.
     private func bar(picture: Bool, keysToggle: Bool = false) -> some View {
-        HStack(spacing: 8) {
+        let keyboardButton = (picture || keysToggle) && !settings.showController
+        return HStack(spacing: 8) {
             Menu {
                 Section {
                     Text(client.status)
@@ -436,6 +442,9 @@ struct ContentView: View {
                     Button(service.name) { client.connect(to: service) }
                 }
                 if client.services.isEmpty { Text("No Macs found yet") }
+                if let name = controller.controllerName {
+                    Label(name, systemImage: "gamecontroller.fill")
+                }
             } label: {
                 Circle()
                     .fill(streamDotColor)
@@ -450,18 +459,18 @@ struct ContentView: View {
                     settings.showScreen.toggle()
                 }
             }
-            // Wherever the full strip is not on screen (the pad is on, or the picture took
-            // its place) the strip's compact row is summoned from the bar, whether or not the
-            // picture is up (the row's own F bar has the keyboard button; a second one here
-            // would squeeze the mouse buttons out of an upright phone).
+            // Wherever the full strip is not on screen (the pad is on, the picture took its
+            // place, or the phone is upright) the strip's compact row is summoned from the
+            // bar, whether or not the picture is up.
             if settings.showController || keysToggle {
                 barButton(showKeyRow ? "command.square.fill" : "command.square", label: showKeyRow ? "Hide keys" : "Show keys") {
                     showKeyRow.toggle()
                 }
             }
             // With the pad on, the key row's F bar has the keyboard button; a second one here
-            // squeezes the mouse buttons out of an upright phone.
-            if picture, !settings.showController {
+            // squeezes the mouse buttons out of an upright phone. Without the pad, wherever
+            // the full strip (which has its own) is not on screen, this is the way in.
+            if keyboardButton {
                 barButton(inputState.keyboardShown ? "keyboard.chevron.compact.down" : "keyboard",
                           label: inputState.keyboardShown ? "Hide keyboard" : "Show keyboard") {
                     inputState.keyboardShown.toggle()
@@ -474,12 +483,16 @@ struct ContentView: View {
                 }
             }
             mouseButtons
-            if controller.controllerName != nil {
+            // On a phone-wide window with the keyboard button in the bar, the mark would squeeze
+            // the mouse buttons to "L…" and "Ri…"; the dot's menu names the controller instead.
+            if controller.controllerName != nil, !keyboardButton || windowSize.width >= 500 {
                 Image(systemName: "gamecontroller.fill")
                     .foregroundStyle(.green)
                     .accessibilityLabel("Controller connected")
             }
-            if !picture, !settings.showController {
+            // Upright and connected, the keyboard and display buttons take its room (it is in
+            // Settings, and on the trackpad while not connected); it stays sideways.
+            if !picture, !settings.showController, !(keysToggle && client.isConnected) {
                 barButton("questionmark.circle", label: "Setup guide") { showSetup = true }
             }
             barButton("gearshape", label: "Settings") { showSettings = true }
@@ -500,8 +513,8 @@ struct ContentView: View {
     }
 
     /// The strip's compact row (F bar over esc, tab, fn and the modifiers), docked under
-    /// the picture where the full strip is not on screen. Upright it keeps the strip's row
-    /// height; sideways, where height is short, it is a slimmer row.
+    /// the trackpad or picture where the full strip is not on screen. Upright it keeps the
+    /// strip's row height; sideways, where height is short, it is a slimmer row.
     private var keyRow: some View {
         KeyStripView(client: client, state: inputState, rowHeight: isLandscape ? 36 : portraitRowHeight, layout: .pad)
     }

@@ -32,7 +32,7 @@ TRACKPAD
 
 KEYBOARD
 • The regular iPhone keyboard, typing straight to the computer
-• A strip above it with the keys a phone doesn't have: esc, tab, arrows, ⌘, ⌥, ⌃, ⇧ and F1–F12
+• The keys a phone doesn't have, one tap away: esc, tab, ⌘, ⌥, ⌃, ⇧ and F1–F12 (arrows too, sideways)
 • Modifiers toggle and stay held, so ⌘C, ⌥Tab and friends just work
 • Hold-to-press keys for games: WASD, space and more stay down while your finger does
 
