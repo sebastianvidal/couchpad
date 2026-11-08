@@ -89,12 +89,15 @@ struct ControllerView: View {
         .frame(height: band)
     }
 
+    /// Y and A sit 30% closer to the X–B row than a full row away: a tighter diamond
+    /// the thumb covers without stretching, centred in its area.
     private func diamond(unit: CGFloat, row: CGFloat) -> some View {
-        ZStack {
-            key(.y, "Y").frame(width: unit, height: row).offset(y: -(row + gap))
+        let lift = (row + gap) * 0.7
+        return ZStack {
+            key(.y, "Y").frame(width: unit, height: row).offset(y: -lift)
             key(.x, "X").frame(width: unit, height: row).offset(x: -(unit + gap))
             key(.b, "B").frame(width: unit, height: row).offset(x: unit + gap)
-            key(.a, "A").frame(width: unit, height: row).offset(y: row + gap)
+            key(.a, "A").frame(width: unit, height: row).offset(y: lift)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
