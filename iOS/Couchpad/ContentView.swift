@@ -54,7 +54,7 @@ struct ContentView: View {
         .padding(.bottom, 8)
         // Keyboard avoidance is applied at the root, so it has to be switched off here:
         // sideways, nothing moves for the keyboard (the trackpad is inset by hand instead).
-        .ignoresSafeArea(isLandscape || hingeLayout ? .keyboard : [])
+        .ignoresSafeArea(isLandscape || hingeLayout || hingeTyping ? .keyboard : [])
         .ignoresSafeArea(.container, edges: panelEdges.union(isLandscape ? .bottom : []))
         // Sideways, the bar sits in the home indicator's strip rather than leaving a blank
         // band under it; the indicator fades out of the way (a swipe still brings it back).
@@ -115,6 +115,7 @@ struct ContentView: View {
         .onChange(of: showScanner) { _, _ in syncKeyboardSuspension() }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
             guard let frame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
+            NSLog("Keyboard frame %@ in window %@", NSCoder.string(for: frame), NSCoder.string(for: windowSize))
             // The frame is in screen coordinates; on a phone the window fills the screen.
             // Keyed by window size, so each orientation and posture learns its own.
             guard frame.minY > windowSize.height * 0.3, frame.minY < windowSize.height else { return }
@@ -175,6 +176,14 @@ struct ContentView: View {
     /// Half open, split at the hinge: except upright while typing, when the keyboard covers
     /// the flat half and the upright layout (picture shrunk by keyboard avoidance, key row
     /// and bar above the keyboard) is the one that fits, exactly as unfolded.
+    /// Half open, upright, keyboard up: iOS reports the keyboard as the whole bottom half
+    /// (the keys sit somewhere inside it), so keyboard avoidance would leave a blank band
+    /// above the keys. Like sideways, the body ignores the keyboard and insets by hand to
+    /// where the keys were last measured to start.
+    private var hingeTyping: Bool {
+        screenOn && client.isConnected && hingePartlyOpen && inputState.keyboardShown && !isLandscape
+    }
+
     private var hingeLayout: Bool {
         screenOn && client.isConnected && hingePartlyOpen && !(inputState.keyboardShown && !isLandscape)
     }
@@ -359,7 +368,7 @@ struct ContentView: View {
         GeometryReader { geo in
             let bottom = geo.frame(in: .global).maxY
             let keyboardTop = keyboardTops[sizeKey] ?? (bottom - geo.size.height * 0.40)
-            let inset = isLandscape && inputState.keyboardShown ? max(0, bottom - keyboardTop + 8) : 0
+            let inset = (isLandscape || hingeTyping) && inputState.keyboardShown ? max(0, bottom - keyboardTop + 8) : 0
             let availableHeight = geo.size.height - inset - 36 - 6
             if settings.showController {
                 // The pad never floats over the picture: the picture gives up the room.
