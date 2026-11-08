@@ -46,9 +46,10 @@ struct ControllerView: View {
     /// row when shown. Wide: one band, three rows tall. While the iOS keyboard is up the
     /// keyboard is the pad: only the strip row stays (nothing at all with the row off).
     private func blockHeight(rowHeight: CGFloat) -> CGFloat {
-        let row = wide ? (3 * rowHeight + 2 * gap - barHeight - 2 * gap) / 2 : (3 * rowHeight + barHeight) / 4
+        let band = (3 * rowHeight + 2 * gap) * 1.1   // sideways: see wideBody
+        let row = wide ? (band - barHeight - 2 * gap) / 2 : (3 * rowHeight + barHeight) / 4
         if state.keyboardShown { return showKeys ? barHeight + gap + (showF ? 2 * row + gap : row) : 0 }
-        if wide { return 3 * rowHeight + 2 * gap }
+        if wide { return band }
         return (showKeys ? barHeight + gap + row + blockGap : 0) + 4 * row + 3 * gap
     }
 
@@ -162,10 +163,11 @@ struct ControllerView: View {
         let row: CGFloat        // and its height
         let edge: CGFloat       // air outside the stick and the diamond, off the band's ends
         if let rowHeight {
-            // The stick is the band's full height already; the face buttons are 10% bigger
-            // than a row (the diamond is still well inside the band's height).
-            band = rowHeight * 3 + gap * 2
-            row = rowHeight * 1.1
+            // The band is 10% taller than three rows so the stick (the band's full height)
+            // grows with it; the face buttons are 10% bigger than a row plus 5pt (the
+            // diamond is still well inside the band's height).
+            band = (rowHeight * 3 + gap * 2) * 1.1
+            row = rowHeight * 1.1 + 5
             faceUnit = row
             edge = 10
         } else {
@@ -181,7 +183,11 @@ struct ControllerView: View {
         // With the strip: bar + gap + two key rows + gap fill the band exactly (filling, up
         // to key shape). Without it, the programmable keys stay key-shaped, centred in the band.
         let stripRow = (band - barHeight - 2 * gap) / 2
-        let keyRow = showKeys ? (rowHeight == nil ? min(stripRow, unit * 1.2) : stripRow) : min(band, unit * 1.2)
+        // Given a row height, the programmable keys are the key row's height whether or not
+        // the row is shown: tall slabs filling the band looked wrong.
+        let keyRow = rowHeight == nil
+            ? (showKeys ? min(stripRow, unit * 1.2) : min(band, unit * 1.2))
+            : stripRow
         return HStack(spacing: gap) {
             VirtualStick(controller: controller).frame(width: band, height: band)
             VStack(spacing: gap) {
