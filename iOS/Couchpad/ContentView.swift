@@ -58,7 +58,9 @@ struct ContentView: View {
         .padding(.bottom, 8)
         // Keyboard avoidance is applied at the root, so it has to be switched off here:
         // sideways, nothing moves for the keyboard (the trackpad is inset by hand instead).
-        .ignoresSafeArea(isLandscape || hingeLayout || hingeTyping ? .keyboard : [])
+        // Half open the keyboard is ignored whatever the state, so the switch is not made
+        // in the same instant the keyboard appears (which SwiftUI did not always honour).
+        .ignoresSafeArea(isLandscape || hingePartlyOpen ? .keyboard : [])
         .ignoresSafeArea(.container, edges: panelEdges.union(isLandscape ? .bottom : []))
         // Sideways, the bar sits in the home indicator's strip rather than leaving a blank
         // band under it; the indicator fades out of the way (a swipe still brings it back).
@@ -378,6 +380,7 @@ struct ContentView: View {
             let bottom = geo.frame(in: .global).maxY
             let keyboardTop = keyboardTops[sizeKey] ?? (bottom - geo.size.height * 0.40)
             let inset = (isLandscape || hingeTyping) && inputState.keyboardShown ? max(0, bottom - keyboardTop + 8) : 0
+            let _ = hingeTyping ? NSLog("Half open typing: bottom %.0f, keyboard top %@, inset %.0f", bottom, keyboardTops[sizeKey].map { String(format: "%.0f", $0) } ?? "unknown", inset) : ()
             let availableHeight = geo.size.height - inset - 36 - 6
             if settings.showController {
                 // The pad never floats over the picture: the picture gives up the room.
