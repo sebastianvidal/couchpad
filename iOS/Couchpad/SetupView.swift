@@ -42,8 +42,8 @@ struct SetupView: View {
                     row("hand.draw", "Two fingers", "Scroll")
                     row("hand.point.up.left.and.text", "Tap, then touch and hold", "Drag")
                     row("square.grid.3x3", "Three-finger swipe", "Up: Mission Control · Down: App Exposé · Left/right: switch Spaces")
-                    row("keyboard", "Keyboard", "Types on the Mac. esc, tab, arrows and ⌘⌥⌃⇧ are in the strip above it")
-                    row("gamecontroller", "Hold keys", "Expand the strip for WASD, space and F-keys that stay down while touched")
+                    row("keyboard", "Keyboard", "Types on the Mac. esc, tab, fn, ⌘⌥⌃⇧ and F1–F12 are in the key row above it")
+                    row("gamecontroller", "On-screen controller", "The d-pad button in the bar: a stick, A B X Y and seven keys you bind, under the picture")
                     row("gamecontroller.fill", "Backbone or Bluetooth controller", "Plug it into the phone: sticks and buttons become WASD, mouse look and keys on the computer")
                 }
 

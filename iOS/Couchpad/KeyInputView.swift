@@ -27,7 +27,7 @@ struct KeyInputView: UIViewRepresentable {
         let wanted = state.keyboardShown && !state.suspended
         DispatchQueue.main.async {
             if wanted {
-                if !uiView.isFirstResponder { uiView.becomeFirstResponder() }
+                if !uiView.isFirstResponder { _ = uiView.becomeFirstResponder() }
             } else if uiView.isFirstResponder {
                 uiView.resignFirstResponder()
             }
@@ -86,7 +86,7 @@ final class KeyInputUIView: UITextField, UITextFieldDelegate {
             // change that also hides it), and a field taking it now would leave it up
             // with nothing on screen expecting it.
             guard self.window != nil, self.inputState?.keyboardShown == true, self.inputState?.suspended != true else { return }
-            self.becomeFirstResponder()
+            _ = self.becomeFirstResponder()
         }
     }
 

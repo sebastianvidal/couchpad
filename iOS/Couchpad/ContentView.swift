@@ -96,12 +96,14 @@ struct ContentView: View {
             controller.client = client
             controller.settings = settings
             screen.client = client
-            client.onScreenPacket = { [weak screen] packet in screen?.handle(packet) }
-            client.onScreenStatus = { [weak screen] status in screen?.hostMessage = status }
-            client.onScreenHealth = { [weak screen] health in
-                if screen?.health != health { screen?.health = health }
+            // The receiver lives as long as the view; the client's callbacks hold it plainly
+            // (a weak capture here was pointless, the enclosing closure already holds it).
+            client.onScreenPacket = { packet in screen.handle(packet) }
+            client.onScreenStatus = { status in screen.hostMessage = status }
+            client.onScreenHealth = { health in
+                if screen.health != health { screen.health = health }
             }
-            client.onScreenLoss = { [weak screen] in screen?.markLost() }
+            client.onScreenLoss = { screen.markLost() }
             client.startBrowsing()
             UIApplication.shared.isIdleTimerDisabled = true
             if !hasSeenSetup {
