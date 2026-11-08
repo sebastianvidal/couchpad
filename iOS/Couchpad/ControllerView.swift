@@ -211,20 +211,23 @@ struct ControllerView: View {
 
     /// Y and A sit 40% closer to the X–B row than a full row away: a tighter diamond
     /// the thumb covers without stretching, centred in its area.
+    /// The face buttons are round, the one place on the pad that is: a controller's buttons,
+    /// not keys. Each is a circle as big as the key cell allows.
     private func diamond(unit: CGFloat, row: CGFloat) -> some View {
-        let lift = (row + gap) * 0.6
+        let d = min(unit, row)
+        let lift = (d + gap) * 0.6
         return ZStack {
-            key(.y, "Y").frame(width: unit, height: row).offset(y: -lift)
-            key(.x, "X").frame(width: unit, height: row).offset(x: -(unit + gap))
-            key(.b, "B").frame(width: unit, height: row).offset(x: unit + gap)
-            key(.a, "A").frame(width: unit, height: row).offset(y: lift)
+            key(.y, "Y", round: true).frame(width: d, height: d).offset(y: -lift)
+            key(.x, "X", round: true).frame(width: d, height: d).offset(x: -(d + gap))
+            key(.b, "B", round: true).frame(width: d, height: d).offset(x: d + gap)
+            key(.a, "A", round: true).frame(width: d, height: d).offset(y: lift)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func key(_ control: Control, _ text: String? = nil, tag: String? = nil) -> some View {
+    private func key(_ control: Control, _ text: String? = nil, tag: String? = nil, round: Bool = false) -> some View {
         let code = ControllerView.code(control)
-        return PadKey(action: controller.profile[control], text: text, tag: tag, pressed: pressedCodes.contains(code))
+        return PadKey(action: controller.profile[control], text: text, tag: tag, round: round, pressed: pressedCodes.contains(code))
             .background(GeometryReader { geo in
                 Color.clear.preference(key: KeyFramesKey.self, value: [code: geo.frame(in: .named("pad"))])
             })
@@ -253,8 +256,6 @@ private struct VirtualStick: View {
             let knobSize = side * 0.42
             let travel = (side - knobSize) / 2
             ZStack {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color(.secondarySystemBackground))
                 Circle()
                     .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1.5)
                     .frame(width: side * 0.86, height: side * 0.86)
@@ -288,8 +289,10 @@ private struct VirtualStick: View {
     }
 
     /// Eight 45° sectors, centred on the four directions and the diagonals between them.
+    /// Only the very centre is dead, so a tap anywhere on the stick presses that direction
+    /// for as long as the finger is down, like a d-pad.
     private func directions(dx: CGFloat, dy: CGFloat, distance: CGFloat, travel: CGFloat) -> Set<Control> {
-        guard distance > travel * 0.3 else { return [] }
+        guard distance > 6 else { return [] }
         let degrees = (atan2(-dy, dx) * 180 / .pi + 360 + 22.5).truncatingRemainder(dividingBy: 360)
         switch Int(degrees / 45) {
         case 0: return [.leftStickRight]
@@ -319,13 +322,18 @@ private struct PadKey: View {
     let action: ControlAction
     var text: String? = nil
     var tag: String? = nil
+    var round = false
     let pressed: Bool
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(pressed ? Color.accentColor : Color(.secondarySystemBackground))
+                let fill = pressed ? Color.accentColor : Color(.secondarySystemBackground)
+                if round {
+                    Circle().fill(fill)
+                } else {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous).fill(fill)
+                }
                 VStack(spacing: 0) {
                     if let tag {
                         if geo.size.height >= 34 {
