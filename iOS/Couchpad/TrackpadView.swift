@@ -4,13 +4,18 @@ import UIKit
 /// One finger moves, tap clicks, two-finger tap right-clicks, two fingers scroll,
 /// tap-then-touch-and-hold drags, three-finger swipes are system gestures
 /// (Mission Control, App Exposé, Spaces on the Mac; Task View etc. on Windows).
+/// With the picture underneath, a pinch zooms it (moving the pinch looks around; pinching
+/// back out resets), reported through `onZoom` so the picture can follow.
 struct TrackpadView: UIViewRepresentable {
     let client: Client
     let settings: AppSettings
     /// When the host's picture is underneath, touches point at it: the pointer goes where
     /// the finger is (letterboxed to `videoSize`) instead of moving by deltas.
     var videoSize = CGSize.zero
+    /// Size of the picture underneath, whether or not touches point at it; .zero without one.
+    var pictureSize = CGSize.zero
     var videoTopLeading = false
+    var onZoom: ((CGFloat, CGPoint) -> Void)?
 
     func makeUIView(context: Context) -> TrackpadUIView {
         let view = TrackpadUIView()
@@ -21,7 +26,10 @@ struct TrackpadView: UIViewRepresentable {
 
     func updateUIView(_ uiView: TrackpadUIView, context: Context) {
         uiView.videoSize = videoSize
+        uiView.pictureSize = pictureSize
         uiView.videoTopLeading = videoTopLeading
+        uiView.onZoom = onZoom
+        if pictureSize == .zero { uiView.resetZoom() }   // the picture went away; the next one starts at 1×
     }
 }
 
@@ -29,17 +37,89 @@ final class TrackpadUIView: UIView {
     weak var client: Client?
     weak var settings: AppSettings?
     var videoSize = CGSize.zero
+    var pictureSize = CGSize.zero
     /// Whether the picture is pinned to the top-left corner rather than centered.
     var videoTopLeading = false
+    var onZoom: ((CGFloat, CGPoint) -> Void)?
     private var absolute: Bool { videoSize.width > 0 && videoSize.height > 0 }
 
-    /// Where the picture sits inside this view (aspect-fit), for mapping touches to it.
+    /// How far the picture is zoomed in and how far it is shifted from centre (points).
+    private var zoom: CGFloat = 1
+    private var pan = CGPoint.zero
+    /// What two fingers are doing: nothing decided yet, scrolling, or pinching. Decided by
+    /// whichever grows first, the distance between them or their common movement, so a
+    /// scroll never zooms and a pinch never scrolls the page under it.
+    private enum TwoFingers { case undecided, scroll, pinch }
+    private var twoFingers = TwoFingers.undecided
+    private var pinchDistance: CGFloat = 0
+    private var pinchCentroid = CGPoint.zero
+    private var pendingScroll = CGPoint.zero
+
+    /// Where a picture of `size` sits inside this view (aspect-fit, before zoom).
+    private func fitRect(_ size: CGSize) -> CGRect {
+        guard size.width > 0, size.height > 0, bounds.width > 0, bounds.height > 0 else { return bounds }
+        let scale = min(bounds.width / size.width, bounds.height / size.height)
+        let fitted = CGSize(width: size.width * scale, height: size.height * scale)
+        if videoTopLeading { return CGRect(origin: .zero, size: fitted) }
+        return CGRect(x: (bounds.width - fitted.width) / 2, y: (bounds.height - fitted.height) / 2, width: fitted.width, height: fitted.height)
+    }
+
+    /// Where the picture is right now, zoom included, for mapping touches to it.
     private var videoRect: CGRect {
-        guard absolute, bounds.width > 0, bounds.height > 0 else { return bounds }
-        let scale = min(bounds.width / videoSize.width, bounds.height / videoSize.height)
-        let size = CGSize(width: videoSize.width * scale, height: videoSize.height * scale)
-        if videoTopLeading { return CGRect(origin: .zero, size: size) }
-        return CGRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
+        guard absolute else { return bounds }
+        return ScreenGeometry.zoomed(fitRect(videoSize), zoom: zoom, pan: pan)
+    }
+
+    func resetZoom() {
+        guard zoom != 1 || pan != .zero else { return }
+        zoom = 1
+        pan = .zero
+        onZoom?(zoom, pan)
+    }
+
+    private var twoTouchPoints: (CGPoint, CGPoint)? {
+        guard active.count == 2 else { return nil }
+        let points = Array(active.values)
+        return (points[0], points[1])
+    }
+
+    /// Two fingers moved by `delta`: scroll, or pinch the picture.
+    private func handleTwoFingers(_ delta: CGPoint) {
+        guard pictureSize != .zero, let (a, b) = twoTouchPoints else { sendScroll(delta); return }
+        let distance = hypot(a.x - b.x, a.y - b.y)
+        let centre = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+        switch twoFingers {
+        case .undecided:
+            pendingScroll.x += delta.x
+            pendingScroll.y += delta.y
+            let spread = abs(distance - pinchDistance)
+            let moved = hypot(centre.x - pinchCentroid.x, centre.y - pinchCentroid.y)
+            if spread > 10, spread > moved {
+                twoFingers = .pinch
+                pinchDistance = distance
+                pinchCentroid = centre
+            } else if moved > 10 {
+                twoFingers = .scroll
+                sendScroll(pendingScroll)   // nothing was lost while we made up our mind
+            }
+        case .scroll:
+            sendScroll(delta)
+        case .pinch:
+            guard pinchDistance > 0 else { pinchDistance = distance; return }
+            let fit = fitRect(pictureSize)
+            let before = ScreenGeometry.zoomed(fit, zoom: zoom, pan: pan)
+            var newZoom = min(ScreenGeometry.maxZoom, zoom * distance / pinchDistance)
+            if newZoom < 1.03 { newZoom = 1 }   // pinched back out: snap home
+            // The spot under the fingers stays under them: it moves with the pinch's centre.
+            let spot = CGPoint(x: (pinchCentroid.x - before.minX) / zoom, y: (pinchCentroid.y - before.minY) / zoom)
+            let origin = CGPoint(x: centre.x - spot.x * newZoom, y: centre.y - spot.y * newZoom)
+            let home = ScreenGeometry.zoomed(fit, zoom: newZoom, pan: .zero)
+            zoom = newZoom
+            pan = newZoom == 1 ? .zero : ScreenGeometry.clampedPan(CGPoint(x: origin.x - home.minX, y: origin.y - home.minY), fit: fit, zoom: newZoom)
+            pinchDistance = distance
+            pinchCentroid = centre
+            onZoom?(zoom, pan)
+        }
     }
 
     private func sendPointer(at point: CGPoint) {
@@ -86,6 +166,12 @@ final class TrackpadUIView: UIView {
         if absolute, active.count == 1, let point = active.values.first {
             sendPointer(at: point)   // so a tap clicks what is under the finger
         }
+        if active.count == 2, let (a, b) = twoTouchPoints {
+            twoFingers = .undecided
+            pinchDistance = hypot(a.x - b.x, a.y - b.y)
+            pinchCentroid = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+            pendingScroll = .zero
+        }
         if active.count == 3 {
             gestureStart = centroid()
             gestureLast = gestureStart
@@ -125,7 +211,7 @@ final class TrackpadUIView: UIView {
                 sendMove(delta)
             }
         } else if active.count >= 2 {
-            sendScroll(delta)
+            handleTwoFingers(delta)
         }
     }
 
@@ -147,7 +233,7 @@ final class TrackpadUIView: UIView {
                 client?.send("c l")
                 lastTapTime = now
                 haptic.impactOccurred()
-            } else if maxTouches == 2 {
+            } else if maxTouches == 2, twoFingers != .pinch {
                 client?.send("c r")
                 haptic.impactOccurred()
             }

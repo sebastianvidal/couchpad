@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import CoreMedia
 import Foundation
@@ -40,6 +41,12 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     private var lastBuffer: CVPixelBuffer?
     private var startedAt = CFAbsoluteTimeGetCurrent()
     private var running = false
+    /// What the phones last asked for, while any of them wants the picture. The stream dies
+    /// with the display (sleep, lock): as long as this is set it is started again, every
+    /// couple of seconds and the moment the screens wake, so the picture comes back on its
+    /// own instead of waiting for the phone to toggle it.
+    private var wanted: (maxWidth: Int, maxHeight: Int, fps: Int)?
+    private var retryPending = false
     /// Smoothed timings, for the stats log: how old a frame is when ScreenCaptureKit delivers
     /// it, how long the encoder takes, and how many frames the capture skipped.
     private(set) var captureAge = 0.0
@@ -63,13 +70,45 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
 
     static var hasPermission: Bool { CGPreflightScreenCaptureAccess() }
 
-    /// Starts (or restarts, if the size changed) a stream that fits in `maxWidth`×`maxHeight`.
-    func start(maxWidth: Int, maxHeight: Int, fps: Int) {
-        queue.async { self.startOnQueue(maxWidth: maxWidth, maxHeight: maxHeight, fps: fps) }
+    override init() {
+        super.init()
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: nil) { [weak self] _ in
+            self?.queue.async { self?.restartIfWanted() }
+        }
     }
 
+    /// The display went away under the stream, or starting it failed. Tell the phone once,
+    /// then keep trying quietly while someone still wants the picture.
+    private func fail(_ message: String) {
+        if !retryPending { onStatus?("error \(message)") }
+        stopOnQueue()
+        guard wanted != nil, !retryPending else { return }
+        retryPending = true
+        queue.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.retryPending = false
+            self?.restartIfWanted()
+        }
+    }
+
+    private func restartIfWanted() {
+        guard let wanted, !running else { return }
+        startOnQueue(maxWidth: wanted.maxWidth, maxHeight: wanted.maxHeight, fps: wanted.fps)
+    }
+
+    /// Starts (or restarts, if the size changed) a stream that fits in `maxWidth`×`maxHeight`.
+    func start(maxWidth: Int, maxHeight: Int, fps: Int) {
+        queue.async {
+            self.wanted = (maxWidth, maxHeight, fps)
+            self.startOnQueue(maxWidth: maxWidth, maxHeight: maxHeight, fps: fps)
+        }
+    }
+
+    /// Nobody wants the picture any more; also ends any pending restart.
     func stop() {
-        queue.async { self.stopOnQueue() }
+        queue.async {
+            self.wanted = nil
+            self.stopOnQueue()
+        }
     }
 
     /// The phone lost frames on the way. A run of losses means the link can't carry the
@@ -137,8 +176,7 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
             self.queue.async {
                 guard self.running, self.frameSize == size else { return }
                 guard let display = content?.displays.first(where: { $0.displayID == displayID }) ?? content?.displays.first else {
-                    self.onStatus?("error \(error?.localizedDescription ?? "no display")")
-                    self.running = false
+                    self.fail(error?.localizedDescription ?? "no display")
                     return
                 }
                 let config = SCStreamConfiguration()
@@ -153,17 +191,13 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
                     try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: self.queue)
                     try self.makeEncoder(size: size)
                 } catch {
-                    self.onStatus?("error \(error.localizedDescription)")
-                    self.running = false
+                    self.fail(error.localizedDescription)
                     return
                 }
                 self.stream = stream
                 stream.startCapture { [weak self] error in
                     guard let error else { return }
-                    self?.queue.async {
-                        self?.onStatus?("error \(error.localizedDescription)")
-                        self?.stopOnQueue()
-                    }
+                    self?.queue.async { self?.fail(error.localizedDescription) }
                 }
             }
         }
@@ -246,8 +280,8 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         queue.async {
-            self.onStatus?("error \(error.localizedDescription)")
-            self.stopOnQueue()
+            guard self.stream === stream else { return }   // an old stream going away
+            self.fail(error.localizedDescription)
         }
     }
 

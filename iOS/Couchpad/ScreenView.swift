@@ -120,24 +120,57 @@ final class ScreenReceiver: ObservableObject {
     }
 }
 
-/// The picture, letterboxed inside whatever space it is given.
+/// The picture, letterboxed inside whatever space it is given. `zoom` and `pan` come from
+/// the trackpad's pinch (see TrackpadUIView): the picture is scaled about its centre, shifted
+/// by `pan`, and clipped to its own frame, so the letterbox never shows picture.
 struct ScreenView: UIViewRepresentable {
     @ObservedObject var receiver: ScreenReceiver
+    var zoom: CGFloat = 1
+    var pan = CGPoint.zero
 
     func makeUIView(context: Context) -> ScreenUIView {
         let view = ScreenUIView()
+        view.layer.masksToBounds = true
         view.layer.addSublayer(receiver.layer)
         return view
     }
 
     func updateUIView(_ uiView: ScreenUIView, context: Context) {
+        uiView.zoom = zoom
+        uiView.pan = pan
         uiView.setNeedsLayout()
     }
 }
 
 final class ScreenUIView: UIView {
+    var zoom: CGFloat = 1
+    var pan = CGPoint.zero
+
     override func layoutSubviews() {
         super.layoutSubviews()
-        for sub in layer.sublayers ?? [] { sub.frame = bounds }
+        let frame = ScreenGeometry.zoomed(bounds, zoom: zoom, pan: pan)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)   // no implicit animation: it must follow the fingers
+        for sub in layer.sublayers ?? [] { sub.frame = frame }
+        CATransaction.commit()
+    }
+}
+
+/// Where a zoomed picture sits, shared by the picture (ScreenUIView) and the trackpad
+/// mapping touches onto it (TrackpadUIView) so the two agree to the point.
+enum ScreenGeometry {
+    static let maxZoom: CGFloat = 6
+
+    /// `fit` scaled by `zoom` about its centre and moved by `pan`.
+    static func zoomed(_ fit: CGRect, zoom: CGFloat, pan: CGPoint) -> CGRect {
+        let size = CGSize(width: fit.width * zoom, height: fit.height * zoom)
+        return CGRect(x: fit.midX - size.width / 2 + pan.x, y: fit.midY - size.height / 2 + pan.y,
+                      width: size.width, height: size.height)
+    }
+
+    /// `pan` limited so the zoomed picture always covers the whole of `fit`: no empty strips.
+    static func clampedPan(_ pan: CGPoint, fit: CGRect, zoom: CGFloat) -> CGPoint {
+        let maxX = (zoom - 1) * fit.width / 2, maxY = (zoom - 1) * fit.height / 2
+        return CGPoint(x: min(max(pan.x, -maxX), maxX), y: min(max(pan.y, -maxY), maxY))
     }
 }

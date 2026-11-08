@@ -29,6 +29,11 @@ struct ContentView: View {
     @State private var hingePartlyOpen = false
     @State private var keysOffset = CGSize.zero
     @State private var keysOffsetBase = CGSize.zero
+    /// How far the picture is pinched in and shifted; owned by the trackpad's gesture.
+    @State private var screenZoom: CGFloat = 1
+    @State private var screenPan = CGPoint.zero
+    /// Waits for a pinch to settle before asking the host for a sharper (or coarser) stream.
+    @State private var zoomSettle: Task<Void, Never>?
     /// Top edge of the iOS keyboard in landscape (window coordinates), measured the first
     /// time it appears and remembered per window size, so the key block can end exactly where
     /// it begins. Keyed by size because a foldable has two displays with different keyboards.
@@ -133,6 +138,16 @@ struct ContentView: View {
         .onChange(of: settings.showScreen) { _, _ in syncScreen() }
         .onChange(of: trackpadPixels) { _, _ in syncScreen() }
         .onChange(of: settings.screenQuality) { _, _ in syncScreen() }
+        .onChange(of: screenZoom) { _, _ in
+            // Zoomed in, the pane's pixels are spread thin: once the fingers settle, ask for
+            // a stream with that many more pixels (the host caps it at the display's own).
+            zoomSettle?.cancel()
+            zoomSettle = Task {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled else { return }
+                syncScreen()
+            }
+        }
     }
 
     /// The picture is only offered by Macs for now; the setting is remembered regardless.
@@ -162,7 +177,8 @@ struct ContentView: View {
             let share = [0.5, 2.0 / 3.0, 1.0][max(0, min(2, settings.screenQuality))]
             // 60 fps: a change waits half as long for the next capture, and the phone's
             // display shows it on the next refresh. Bandwidth roughly doubles; still a few Mbps.
-            client.send("v 1 \(Int(trackpadPixels.width * share)) \(Int(trackpadPixels.height * share)) 60")
+            let pixels = share * Double(screenZoom)
+            client.send("v 1 \(Int(trackpadPixels.width * pixels)) \(Int(trackpadPixels.height * pixels)) 60")
         } else {
             client.send("v 0")
             screen.reset()
@@ -468,12 +484,13 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
             if showPicture {
-                ScreenView(receiver: screen)
+                ScreenView(receiver: screen, zoom: screenZoom, pan: screenPan)
                     .aspectRatio(screen.videoSize == .zero ? nil : screen.videoSize.width / screen.videoSize.height, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             TrackpadView(client: client, settings: settings, videoSize: showPicture && settings.tapToPoint ? screen.videoSize : .zero,
-                         videoTopLeading: showKeysPanel)
+                         pictureSize: showPicture ? screen.videoSize : .zero, videoTopLeading: showKeysPanel,
+                         onZoom: { zoom, pan in screenZoom = zoom; screenPan = pan })
                 .background(
                     GeometryReader { geo in
                         Color.clear.onChange(of: geo.size, initial: true) { _, size in
@@ -634,6 +651,8 @@ struct ContentView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                     Toggle("Touch the picture to point there", isOn: $settings.tapToPoint)
                     Text("The pointer jumps to where your finger is, so a tap clicks what is under it. Off, a swipe moves the pointer and a tap clicks where it is.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Text("Pinch the picture to zoom in, move the pinch to look around, pinch back out to reset.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Controller") {
