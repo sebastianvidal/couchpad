@@ -24,6 +24,8 @@ struct ContentView: View {
     @State private var showScanner = false
     /// Screen layout: the floating key panel and where the user dragged it.
     @State private var showKeysPanel = false
+    /// With the pad on, the bar's ⌘ button shows the strip's key row in the pad instead.
+    @State private var showPadKeys = false
     /// A foldable held half open: the picture goes on the half that stands up, the controls
     /// on the half lying flat. Reported by the system; always false elsewhere.
     @State private var hingePartlyOpen = false
@@ -255,7 +257,7 @@ struct ContentView: View {
                     // Sideways the pad is a short band under the trackpad, thumbs at the
                     // bottom corners, rather than a column beside it.
                     trackpad
-                    ControllerView(controller: controller, client: client, state: inputState, rowHeight: wideRowHeight(above), wide: true)
+                    ControllerView(controller: controller, client: client, state: inputState, rowHeight: wideRowHeight(above), wide: true, showKeys: showPadKeys)
                 } else {
                     HStack(spacing: 10) {
                         if settings.trackpadOnRight {
@@ -332,7 +334,7 @@ struct ContentView: View {
             if settings.showController {
                 // Picture on one half, pad on the other: a hand-held console. Upright the
                 // flat half is wide and short; sideways it is a narrow column.
-                ControllerView(controller: controller, client: client, state: inputState, wide: !isLandscape)
+                ControllerView(controller: controller, client: client, state: inputState, wide: !isLandscape, showKeys: showPadKeys)
             } else {
                 trackpadPane(picture: false)
                     .overlay(alignment: .bottomTrailing) {
@@ -370,9 +372,9 @@ struct ContentView: View {
                 VStack(spacing: 6) {
                     trackpad
                     if isLandscape {
-                        ControllerView(controller: controller, client: client, state: inputState, rowHeight: wideRowHeight(availableHeight), wide: true)
+                        ControllerView(controller: controller, client: client, state: inputState, rowHeight: wideRowHeight(availableHeight), wide: true, showKeys: showPadKeys)
                     } else {
-                        ControllerView(controller: controller, client: client, state: inputState, rowHeight: portraitRowHeight)
+                        ControllerView(controller: controller, client: client, state: inputState, rowHeight: portraitRowHeight, showKeys: showPadKeys)
                     }
                     bar(picture: true)
                 }
@@ -441,7 +443,11 @@ struct ContentView: View {
             // With the pad on the key strip is gone, so the keys are summoned from the bar
             // whether or not the picture is up (the panel's own bar has the keyboard button;
             // a second one here would squeeze the mouse buttons out of an upright phone).
-            if keysToggle || settings.showController {
+            if settings.showController {
+                barButton(showPadKeys ? "command.square.fill" : "command.square", label: showPadKeys ? "Hide keys" : "Show keys") {
+                    showPadKeys.toggle()
+                }
+            } else if keysToggle {
                 barButton(showKeysPanel ? "command.square.fill" : "command.square", label: showKeysPanel ? "Hide keys" : "Show keys") {
                     showKeysPanel.toggle()
                 }
@@ -520,7 +526,7 @@ struct ContentView: View {
     /// The block under the picture: the key strip, or the pad when the controller is on.
     @ViewBuilder private func controls(rowHeight: CGFloat) -> some View {
         if settings.showController {
-            ControllerView(controller: controller, client: client, state: inputState, rowHeight: rowHeight)
+            ControllerView(controller: controller, client: client, state: inputState, rowHeight: rowHeight, showKeys: showPadKeys)
         } else {
             KeyStripView(client: client, state: inputState, rowHeight: rowHeight)
         }
@@ -532,14 +538,7 @@ struct ContentView: View {
             .opacity(0.01)
     }
 
-    /// The main pane; with the pad on, the floating key panel lives over it (the pad took
-    /// the strip's place, so this is where the keys go when asked for).
-    private var trackpad: some View {
-        trackpadPane(picture: true)
-            .overlay(alignment: .bottomTrailing) {
-                if showKeysPanel, settings.showController { keysPanel }
-            }
-    }
+    private var trackpad: some View { trackpadPane(picture: true) }
 
     /// The trackpad, with the Mac's picture underneath when screen mode is on and `picture`
     /// asks for it (the half-open layout shows a second, plain trackpad).
