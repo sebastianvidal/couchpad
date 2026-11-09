@@ -244,9 +244,9 @@ struct ControllerView: View {
     /// or a gesture, the strip's F bar is a button the size of the bar, and both touch
     /// overlays claim only their key frames, so every touch that misses a control (the
     /// gaps between keys included) reaches the trackpad underneath. The dark disc behind
-    /// the stick keeps its ring visible over a bright picture; it follows `overlayOpacity`
-    /// like the keys' fills and labels (0.2 black at the default 0.5), while the ring and
-    /// knob, faint already, stay as they are.
+    /// the stick keeps its ring, which is the disc's edge, visible over a bright picture; it
+    /// follows `overlayOpacity` like the keys' fills and labels (0.2 black at the default
+    /// 0.5), while the ring and knob, faint already, stay as they are.
     private func overlayBody(_ size: CGSize) -> some View {
         let edge: CGFloat = 24      // off the pane's sides
         let bottom: CGFloat = 16    // off its bottom
@@ -325,9 +325,10 @@ struct ControllerView: View {
 
 /// A stick drawn as a ring with a knob that follows the thumb. The direction (8-way, so
 /// diagonals press two keys) is read from the knob's angle once it is off centre, and a
-/// quarter of the ring centred on it is lit under the knob. Lines on the diagonals split the
-/// ring into the four directions' quarters: a straight direction fills one, a diagonal
-/// straddles a line.
+/// quarter of the ring centred on it is lit under the knob, from the resting knob's edge out
+/// to the ring. Lines on the diagonals, over the same span, split the ring into the four
+/// directions' quarters: a straight direction fills one, a diagonal straddles a line. The
+/// ring is the frame's edge (over the picture, the edge of the dark disc behind it).
 ///
 /// A touch works two ways. Put down and held still, it is a tap: wherever it lands, bar the
 /// very centre, that direction is pressed, like a d-pad. Once the thumb moves it is a stick,
@@ -351,15 +352,15 @@ private struct VirtualStick: View {
             ZStack {
                 Circle()
                     .strokeBorder(Color.primary.opacity(0.12), lineWidth: ring)
-                    .frame(width: side * 0.86, height: side * 0.86)
+                    .frame(width: side, height: side)
                 if let sector {
-                    SectorWedge(sector: sector)
+                    SectorWedge(sector: sector, inner: knobSize / 2)
                         .fill(Color.accentColor.opacity(0.28))
-                        .frame(width: side * 0.86 - ring * 2, height: side * 0.86 - ring * 2)
+                        .frame(width: side - ring * 2, height: side - ring * 2)
                 }
                 Diagonals(inner: knobSize / 2)
                     .stroke(Color.primary.opacity(0.12), lineWidth: ring)
-                    .frame(width: side * 0.86 - ring * 2, height: side * 0.86 - ring * 2)
+                    .frame(width: side - ring * 2, height: side - ring * 2)
                 Circle()
                     .fill(active ? Color.accentColor : Color.primary.opacity(0.25))
                     .frame(width: knobSize, height: knobSize)
@@ -444,20 +445,23 @@ private struct VirtualStick: View {
         if !controls.isEmpty { haptic.selectionChanged() }
     }
 
-    /// The 90° pie slice centred on a sector, from the centre to the edge of the frame: twice
-    /// the sector's own 45°, so a straight direction lights the quarter between two diagonal
-    /// lines. Sectors count counter-clockwise from right with y up; the path's y runs down, so
-    /// the slice for sector n spans -45n ± 45° there. A relative arc with a positive delta
-    /// needs no clockwise flag.
+    /// The 90° slice of the ring centred on a sector, from `inner` out to the edge of the
+    /// frame: twice the sector's own 45°, so a straight direction lights the quarter between
+    /// two diagonal lines. Sectors count counter-clockwise from right with y up; the path's y
+    /// runs down, so the slice for sector n spans -45n ± 45° there. Relative arcs need no
+    /// clockwise flag: out along the edge, back along `inner`, each joined by a line.
     private struct SectorWedge: Shape {
         let sector: Int
+        let inner: CGFloat
 
         func path(in rect: CGRect) -> Path {
             let center = CGPoint(x: rect.midX, y: rect.midY)
+            let start = -45 * Double(sector) - 45
             var path = Path()
-            path.move(to: center)
             path.addRelativeArc(center: center, radius: min(rect.width, rect.height) / 2,
-                                startAngle: .degrees(-45 * Double(sector) - 45), delta: .degrees(90))
+                                startAngle: .degrees(start), delta: .degrees(90))
+            path.addRelativeArc(center: center, radius: inner,
+                                startAngle: .degrees(start + 90), delta: .degrees(-90))
             path.closeSubpath()
             return path
         }
