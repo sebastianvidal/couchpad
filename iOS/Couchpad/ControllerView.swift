@@ -326,10 +326,16 @@ struct ControllerView: View {
 /// A stick drawn as a ring with a knob that follows the thumb. The direction (8-way, so
 /// diagonals press two keys) is read from the knob's angle once it is off centre, and the
 /// 45° slice of the ring it falls in is lit under the knob.
+///
+/// A touch works two ways. Put down and held still, it is a tap: wherever it lands, bar the
+/// very centre, that direction is pressed, like a d-pad. Once the thumb moves it is a stick,
+/// and the tap is over: the knob must leave a dead zone around the centre, as on a
+/// controller, before anything is pressed. Lifting the thumb makes the next touch a tap again.
 private struct VirtualStick: View {
     @ObservedObject var controller: ControllerBridge
     @State private var knob = CGPoint.zero   // offset from centre, clamped to the travel
     @State private var active = false
+    @State private var moved = false         // the thumb has moved since it came down: a stick, not a tap
     @State private var sector: Int?          // the lit slice; also decides what is held
     @State private var held = Set<Control>()
     private let haptic = UISelectionFeedbackGenerator()
@@ -361,18 +367,31 @@ private struct VirtualStick: View {
                 DragGesture(minimumDistance: 0, coordinateSpace: .local)
                     .onChanged { value in
                         if !active { active = true; haptic.prepare() }
+                        if !moved, hypot(value.translation.width, value.translation.height) > Self.tapSlop { moved = true }
                         var dx = value.location.x - geo.size.width / 2
                         var dy = value.location.y - geo.size.height / 2
                         let distance = hypot(dx, dy)
                         if distance > travel { dx *= travel / distance; dy *= travel / distance }
                         knob = CGPoint(x: dx, y: dy)
-                        sector = Self.sector(dx: dx, dy: dy, distance: distance)
+                        if moved {
+                            // A held direction lets go a little nearer the centre than it took
+                            // hold, so a thumb resting on the edge of the dead zone doesn't flicker.
+                            let dead = travel * (sector == nil ? Self.deadZone : Self.releaseZone)
+                            sector = Self.sector(dx: dx, dy: dy, distance: distance, dead: dead)
+                        } else {
+                            // A tap goes by where it landed: a thumb that lands near the centre
+                            // and pushes out presses nothing until it is past the dead zone.
+                            let x = value.startLocation.x - geo.size.width / 2
+                            let y = value.startLocation.y - geo.size.height / 2
+                            sector = Self.sector(dx: x, dy: y, distance: hypot(x, y), dead: Self.tapDead)
+                        }
                         press(Self.directions(sector))
                     }
                     .onEnded { _ in
                         sector = nil
                         press([])
                         active = false
+                        moved = false
                         knob = .zero
                     }
             )
@@ -380,12 +399,20 @@ private struct VirtualStick: View {
         .accessibilityLabel("Movement stick")
     }
 
+    /// A tap: only this close to the centre (points) presses nothing.
+    private static let tapDead: CGFloat = 6
+    /// How far (points) the thumb may wander and still be a tap.
+    private static let tapSlop: CGFloat = 10
+    /// The stick's dead zone, as a share of the knob's travel: a direction takes hold past
+    /// `deadZone` and lets go inside `releaseZone`.
+    private static let deadZone: CGFloat = 0.35
+    private static let releaseZone: CGFloat = 0.28
+
     /// Eight 45° sectors, centred on the four directions and the diagonals between them,
-    /// numbered counter-clockwise from right (0 right, 2 up, 4 left, 6 down). Only the very
-    /// centre is dead (nil), so a tap anywhere on the stick presses that direction for as
-    /// long as the finger is down, like a d-pad.
-    private static func sector(dx: CGFloat, dy: CGFloat, distance: CGFloat) -> Int? {
-        guard distance > 6 else { return nil }
+    /// numbered counter-clockwise from right (0 right, 2 up, 4 left, 6 down). Within `dead`
+    /// of the centre there is none (nil).
+    private static func sector(dx: CGFloat, dy: CGFloat, distance: CGFloat, dead: CGFloat) -> Int? {
+        guard distance > dead else { return nil }
         let degrees = (atan2(-dy, dx) * 180 / .pi + 360 + 22.5).truncatingRemainder(dividingBy: 360)
         return Int(degrees / 45)
     }

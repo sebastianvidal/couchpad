@@ -118,7 +118,8 @@ Tap the d-pad button in the bar (or Settings → Controller → On-screen contro
 phone becomes a hand-held console. Pictures and details:
 https://sebastianvidal.github.io/couchpad/controller.html
 
-- **Layout.** An 8-way stick on the left (diagonals press two keys at once), A B X Y in a
+- **Layout.** An 8-way stick on the left (diagonals press two keys at once; drag it like a
+  controller's stick, with a dead zone, or touch and hold a direction like a d-pad), A B X Y in a
   diamond on the right, and seven programmable keys above them: the pad's L1, L2, L3, menu,
   options, R1 and R2. Every key shows what it is bound to. Each press gives a light tap of
   haptics, and a finger can slide from key to key without lifting.
