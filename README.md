@@ -40,6 +40,14 @@ between, on your Wi-Fi or through your VPN.
   silent mode and mixes with whatever else the phone plays. It is on whenever the picture is;
   Settings → Screen or the dot's menu in the bar turns it off. The Mac keeps playing its own
   sound as well.
+- **Next Mac release:** the picture keeps going with a MacBook's **lid closed**, on the
+  charger. Closed, macOS used to switch the display off ten seconds after every touch, and the
+  picture restarted each time. Now Couchpad attaches a virtual display, which macOS treats
+  like a monitor, so the closed Mac stays awake with its screen on. Just after closing you
+  keep seeing your own desktop (the virtual display mirrors it, out of sight). Once macOS
+  lets the built-in display go, the virtual one becomes the screen, 16:10 like a 13-inch
+  MacBook. It goes away when the lid opens, or five minutes after the last phone stops
+  watching. On battery macOS sleeps a closed Mac no matter what, so the phone says to plug it in.
 - **New on iPhone 1.3:** sideways, the pad and the key row can float over the picture
   (Settings → Pad over the picture), with their opacity set in Settings → Overlay opacity.
 - **Also:** confirmed working **over cellular through Tailscale**, screen included, with

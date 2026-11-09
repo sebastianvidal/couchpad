@@ -194,6 +194,31 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   captures again: an echo loop. Untested; keep `screenSound` off on simulators
   (`defaults write com.seb.Couchpad screenSound -bool false`).
 - Windows ignores `v`/`M`; the phone hides the toggle for Windows hosts.
+- Lid closed (`VirtualScreen.swift`, driven by `checkLid` in ScreenStreamer, once a second
+  while a phone wants the picture):
+  - **The problem:** a closed MacBook with no monitor goes dark 10 s after every touch, then
+    1 s later the next touch wakes it ('Clamshell Sleep' in `pmset -g log`). The stream died
+    each time. No power assertion stops that, and `caffeinate -s -d -u` didn't either.
+  - **The fix:** a CGVirtualDisplay (private API, declared in
+    `Mac/Sources/CGVirtualDisplay/include/CGVirtualDisplay.h`) puts the Mac in closed-display
+    mode. Vendor/product 0x4350/0x4144.
+  - **Wake first:** wake the displays (user activity), then add the virtual display about 2 s
+    later. One made while they sleep gives ScreenCaptureKit only blank frames; the encoder's
+    log then says "encoded 0".
+  - **Where it goes:** just after closing, the built-in display is still active. The virtual
+    one then mirrors it, so the capture stays on the main (built-in) display and nothing moves.
+    Made as an extended display it sits at x = -1440 with an empty desktop, which is what the
+    phone showed. Closed for a while, the built-in drops out and macOS has a 1920×1080
+    stand-in; the virtual display then becomes the only screen, switched to 1440×900 HiDPI.
+  - **Logs:** the host logs `Screen: lid closed …` lines and the first 3 s of frame statuses.
+    If the stand-in is ever mistaken for a monitor, it logs `lid closed onto a monitor` with
+    every display's vendor/model/serial.
+  - **Battery:** closed-display mode needs the charger. On battery the Mac clamshell-sleeps
+    4 s after closing, PreventSystemSleep or not (`Using Batt` in the power log). Couchpad then
+    adds nothing and the phone gets a "plug it in" error. Only root (`pmset disablesleep`)
+    could override it.
+  - **Testing:** testing needs the user to close the lid; this session can't. A small ObjC test
+    program creating a CGVirtualDisplay works for experiments (see the header for the classes).
 
 ## Commits
 Attribution trailer per the session's reminder. Push to `main` directly; no PRs needed for now.

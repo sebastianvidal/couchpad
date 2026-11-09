@@ -5,10 +5,11 @@ import Foundation
 import ScreenCaptureKit
 import VideoToolbox
 
-/// Streams the main display to the phone: ScreenCaptureKit captures it, the hardware encoder
-/// turns it into HEVC (H.264 on Macs without an HEVC encoder), and each frame goes out as a
-/// ScreenPacket. Low latency over everything: real-time mode, no frame reordering, an
-/// explicit keyframe whenever the phone asks (it does so after it had to drop frames).
+/// Streams the main display to the phone (with a MacBook's lid closed, VirtualScreen keeps
+/// one on): ScreenCaptureKit captures it, the hardware encoder turns it into HEVC (H.264 on Macs
+/// without an HEVC encoder), and each frame goes out as a ScreenPacket. Low latency over
+/// everything: real-time mode, no frame reordering, an explicit keyframe whenever the phone
+/// asks (it does so after it had to drop frames).
 ///
 /// The same stream also captures the Mac's sound while a phone wants it, as Opus packets
 /// (AudioEncoder) on their own queue, so sound never waits behind a frame being encoded.
@@ -67,6 +68,23 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     /// own instead of waiting for the phone to toggle it.
     private var wanted: (maxWidth: Int, maxHeight: Int, fps: Int)?
     private var retryPending = false
+    /// With the lid closed the picture comes from a screen of our own (VirtualScreen). The lid
+    /// is looked at every second while a phone wants the picture or that screen is up.
+    private let virtualScreen = VirtualScreen()
+    private var lidTimer: DispatchSourceTimer?
+    private var lastWantedAt = 0.0
+    private var virtualRefusedAt = -Double.infinity
+    private var monitorLogged = false
+    /// When the displays were woken for a virtual screen still to come (see `checkLid`).
+    private var wokeForScreenAt: Double?
+    /// ScreenCaptureKit's frame statuses since the stream started, logged a few seconds into
+    /// a lid-closed stream: complete, idle (nothing changed), blank, suspended. A virtual
+    /// display made while the displays slept gave nothing but blank ones.
+    private var statusTally: [Int: Int] = [:]
+    /// Why the picture is gone while the lid is closed on battery: told to the phone in
+    /// place of whatever error the dying stream reports.
+    private var lidNote: String?
+    private static let batteryNote = "its lid is closed and it's on battery, so macOS puts it to sleep. Plug it in to use it with the lid closed."
     /// Smoothed timings, for the stats log: how old a frame is when ScreenCaptureKit delivers
     /// it, how long the encoder takes, and how many frames the capture skipped.
     private(set) var captureAge = 0.0
@@ -120,7 +138,7 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     /// The display went away under the stream, or starting it failed. Tell the phone once,
     /// then keep trying quietly while someone still wants the picture.
     private func fail(_ message: String) {
-        if !retryPending { onStatus?("error \(message)") }
+        if !retryPending { onStatus?("error \(lidNote ?? message)") }
         stopOnQueue()
         guard wanted != nil, !retryPending else { return }
         retryPending = true
@@ -139,8 +157,87 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     func start(maxWidth: Int, maxHeight: Int, fps: Int) {
         queue.async {
             self.wanted = (maxWidth, maxHeight, fps)
+            self.watchLid()
+            // A screen just added: the stream starts on it in a moment.
+            if self.checkLid() { return }
             self.startOnQueue(maxWidth: maxWidth, maxHeight: maxHeight, fps: fps)
         }
+    }
+
+    // MARK: Lid
+
+    private func watchLid() {
+        guard lidTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(200))
+        timer.setEventHandler { [weak self] in self?.checkLid() }
+        timer.resume()
+        lidTimer = timer
+    }
+
+    /// Adds the virtual screen when the lid closes under a phone with the picture, and takes
+    /// it away when the lid opens or nobody has watched for a while. True if it did either:
+    /// the stream then starts over on the new main screen, once WindowServer has settled.
+    @discardableResult
+    private func checkLid() -> Bool {
+        let now = CFAbsoluteTimeGetCurrent()
+        if wanted != nil { lastWantedAt = now }
+        let lid = VirtualScreen.lidClosed
+        let closed = lid && !VirtualScreen.monitorAttached()
+        if lid, !closed, wanted != nil, virtualScreen.displayID == nil, !monitorLogged {
+            monitorLogged = true
+            NSLog("Screen: lid closed onto a monitor; no virtual display (%@)", VirtualScreen.describeDisplays())
+        }
+        if !lid { monitorLogged = false }
+        let onBattery = closed && virtualScreen.displayID == nil && !VirtualScreen.onACPower
+        if onBattery, wanted != nil, lidNote == nil {
+            lidNote = Self.batteryNote
+            NSLog("Screen: lid closed on battery; the Mac will sleep (no virtual display)")
+            onStatus?("error \(Self.batteryNote)")
+        } else if !onBattery, lidNote != nil {
+            lidNote = nil
+        }
+        var changed = false
+        let needed = closed && !onBattery && wanted != nil && virtualScreen.displayID == nil && now - virtualRefusedAt > 30
+        if !needed { wokeForScreenAt = nil }
+        if needed, wokeForScreenAt == nil {
+            // The lid put the displays to sleep. Wake them first; the screen comes on the
+            // next look, a second or two later (one made while they sleep stays blank).
+            VirtualScreen.wakeDisplays()
+            wokeForScreenAt = now
+        } else if needed, let woke = wokeForScreenAt, now - woke >= 1.5 {
+            wokeForScreenAt = nil
+            if virtualScreen.add() {
+                NSLog("Screen: lid closed; showing a %d×%d virtual display", VirtualScreen.width, VirtualScreen.height)
+                // Arranged once WindowServer has set the display up; then the stream follows.
+                queue.asyncAfter(deadline: .now() + 1) { [weak self] in
+                    guard let self else { return }
+                    NSLog("Screen: virtual display is %@", self.virtualScreen.arrange())
+                }
+                queue.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.restartOnNewScreen() }
+                return true
+            }
+            virtualRefusedAt = now
+            NSLog("Screen: lid closed, but macOS refused a virtual display")
+        } else if virtualScreen.displayID != nil, !closed || (wanted == nil && now - lastWantedAt > VirtualScreen.linger) {
+            virtualScreen.remove()
+            NSLog(closed ? "Screen: nobody watching; virtual display removed" : "Screen: lid open; virtual display removed")
+            changed = true
+        }
+        if virtualScreen.displayID == nil, wanted == nil {
+            lidTimer?.cancel()
+            lidTimer = nil
+        }
+        if changed, wanted != nil {
+            queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.restartOnNewScreen() }
+        }
+        return changed
+    }
+
+    private func restartOnNewScreen() {
+        guard let wanted else { return }
+        stopOnQueue()
+        startOnQueue(maxWidth: wanted.maxWidth, maxHeight: wanted.maxHeight, fps: wanted.fps)
     }
 
     /// Whether any phone with the picture also wants sound. Applied to a running stream in
@@ -153,7 +250,8 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         }
     }
 
-    /// Nobody wants the picture any more; also ends any pending restart.
+    /// Nobody wants the picture any more; also ends any pending restart. A virtual screen
+    /// stays a while (see `VirtualScreen.linger`).
     func stop() {
         queue.async {
             self.wanted = nil
@@ -209,7 +307,15 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
             return
         }
         self.fps = max(10, min(60, fps))
+        // The built-in display dropped out from under a mirroring virtual one, which is the
+        // main screen now but still in its first mode: fix that first, then come back.
+        if virtualScreen.fixModeIfAlone() {
+            NSLog("Screen: the built-in display is gone; the virtual display is the only screen now")
+            queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.restartOnNewScreen() }
+            return
+        }
         let displayID = CGMainDisplayID()
+        let onVirtual = displayID == virtualScreen.displayID
         displayBounds = CGDisplayBounds(displayID)
         let pixelsWide = CGDisplayPixelsWide(displayID), pixelsHigh = CGDisplayPixelsHigh(displayID)
         let scale = min(1, min(Double(maxWidth) / Double(pixelsWide), Double(maxHeight) / Double(pixelsHigh)))
@@ -221,6 +327,17 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         running = true
         forceKeyframe = true
         startedAt = CFAbsoluteTimeGetCurrent()
+        statusTally = [:]
+        if virtualScreen.displayID != nil {
+            let started = startedAt
+            queue.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard let self, self.startedAt == started, self.running else { return }
+                let names = [0: "complete", 1: "idle", 2: "blank", 3: "suspended", 4: "started", 5: "stopped", -1: "unknown"]
+                let tally = self.statusTally.sorted { $0.key < $1.key }.map { "\(names[$0.key] ?? "status \($0.key)") \($0.value)" }
+                NSLog("Screen: lid closed, capturing the %@ display, first 3 s: %@", onVirtual ? "virtual" : "built-in",
+                      tally.isEmpty ? "no frames at all" : tally.joined(separator: ", "))
+            }
+        }
         // The same moment on the host clock, which ScreenCaptureKit stamps sound with: a
         // packet's presentation time is then on the picture's clock.
         let startedAtHost = CACurrentMediaTime()
@@ -234,7 +351,8 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
             guard let self else { return }
             self.queue.async {
                 guard self.running, self.frameSize == size else { return }
-                guard let display = content?.displays.first(where: { $0.displayID == displayID }) ?? content?.displays.first else {
+                // A new virtual screen may not be listed yet: wait for it rather than take another.
+                guard let display = content?.displays.first(where: { $0.displayID == displayID }) ?? (onVirtual ? nil : content?.displays.first) else {
                     self.fail(error?.localizedDescription ?? "no display")
                     return
                 }
@@ -407,12 +525,12 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         if type == .audio { handleAudio(sampleBuffer, from: stream); return }
-        guard type == .screen, running, let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        guard type == .screen, running else { return }
+        let status = (CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]])?.first?[.status] as? Int
+        statusTally[status ?? -1, default: 0] += 1
+        guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         // ScreenCaptureKit also delivers "idle" samples with no new content; skip those.
-        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
-           let status = attachments.first?[.status] as? Int, status != SCFrameStatus.complete.rawValue, !forceKeyframe {
-            return
-        }
+        if let status, status != SCFrameStatus.complete.rawValue, !forceKeyframe { return }
         lastBuffer = buffer
         let age = CACurrentMediaTime() - CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
         captureAge = captureAge * 0.9 + age * 0.1
