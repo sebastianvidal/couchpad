@@ -300,12 +300,14 @@ struct ControllerView: View {
     }
 }
 
-/// A stick in a key-styled well: the knob follows the thumb and the direction (8-way, so
-/// diagonals press two keys) is read from its angle once it is far enough from centre.
+/// A stick drawn as a ring with a knob that follows the thumb. The direction (8-way, so
+/// diagonals press two keys) is read from the knob's angle once it is off centre, and the
+/// 45° slice of the ring it falls in is lit under the knob.
 private struct VirtualStick: View {
     @ObservedObject var controller: ControllerBridge
     @State private var knob = CGPoint.zero   // offset from centre, clamped to the travel
     @State private var active = false
+    @State private var sector: Int?          // the lit slice; also decides what is held
     @State private var held = Set<Control>()
     private let haptic = UISelectionFeedbackGenerator()
 
@@ -314,10 +316,16 @@ private struct VirtualStick: View {
             let side = min(geo.size.width, geo.size.height)
             let knobSize = side * 0.42
             let travel = (side - knobSize) / 2
+            let ring: CGFloat = 1.5
             ZStack {
                 Circle()
-                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1.5)
+                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: ring)
                     .frame(width: side * 0.86, height: side * 0.86)
+                if let sector {
+                    SectorWedge(sector: sector)
+                        .fill(Color.accentColor.opacity(0.28))
+                        .frame(width: side * 0.86 - ring * 2, height: side * 0.86 - ring * 2)
+                }
                 Circle()
                     .fill(active ? Color.accentColor : Color.primary.opacity(0.25))
                     .frame(width: knobSize, height: knobSize)
@@ -335,9 +343,11 @@ private struct VirtualStick: View {
                         let distance = hypot(dx, dy)
                         if distance > travel { dx *= travel / distance; dy *= travel / distance }
                         knob = CGPoint(x: dx, y: dy)
-                        press(directions(dx: dx, dy: dy, distance: distance, travel: travel))
+                        sector = Self.sector(dx: dx, dy: dy, distance: distance)
+                        press(Self.directions(sector))
                     }
                     .onEnded { _ in
+                        sector = nil
                         press([])
                         active = false
                         knob = .zero
@@ -347,13 +357,19 @@ private struct VirtualStick: View {
         .accessibilityLabel("Movement stick")
     }
 
-    /// Eight 45° sectors, centred on the four directions and the diagonals between them.
-    /// Only the very centre is dead, so a tap anywhere on the stick presses that direction
-    /// for as long as the finger is down, like a d-pad.
-    private func directions(dx: CGFloat, dy: CGFloat, distance: CGFloat, travel: CGFloat) -> Set<Control> {
-        guard distance > 6 else { return [] }
+    /// Eight 45° sectors, centred on the four directions and the diagonals between them,
+    /// numbered counter-clockwise from right (0 right, 2 up, 4 left, 6 down). Only the very
+    /// centre is dead (nil), so a tap anywhere on the stick presses that direction for as
+    /// long as the finger is down, like a d-pad.
+    private static func sector(dx: CGFloat, dy: CGFloat, distance: CGFloat) -> Int? {
+        guard distance > 6 else { return nil }
         let degrees = (atan2(-dy, dx) * 180 / .pi + 360 + 22.5).truncatingRemainder(dividingBy: 360)
-        switch Int(degrees / 45) {
+        return Int(degrees / 45)
+    }
+
+    private static func directions(_ sector: Int?) -> Set<Control> {
+        guard let sector else { return [] }
+        switch sector {
         case 0: return [.leftStickRight]
         case 1: return [.leftStickUp, .leftStickRight]
         case 2: return [.leftStickUp]
@@ -371,6 +387,23 @@ private struct VirtualStick: View {
         for control in controls.subtracting(held) { controller.setVirtual(control, pressed: true) }
         held = controls
         if !controls.isEmpty { haptic.selectionChanged() }
+    }
+
+    /// The 45° pie slice of a sector, from the centre to the edge of the frame. Sectors count
+    /// counter-clockwise from right with y up; the path's y runs down, so the slice for sector
+    /// n spans -45n ± 22.5° there. A relative arc with a positive delta needs no clockwise flag.
+    private struct SectorWedge: Shape {
+        let sector: Int
+
+        func path(in rect: CGRect) -> Path {
+            let center = CGPoint(x: rect.midX, y: rect.midY)
+            var path = Path()
+            path.move(to: center)
+            path.addRelativeArc(center: center, radius: min(rect.width, rect.height) / 2,
+                                startAngle: .degrees(-45 * Double(sector) - 22.5), delta: .degrees(45))
+            path.closeSubpath()
+            return path
+        }
     }
 }
 
