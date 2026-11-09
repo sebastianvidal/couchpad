@@ -7,7 +7,9 @@ import UIKit
 /// along the top above the stick and the diamond, like a hand-held console under its
 /// screen; wide, everything sits in one short band: stick, keys, diamond. The strip's
 /// F bar and key row, when shown (the bar's ⌘ button), are above the keys tall and over
-/// them in the band wide.
+/// them in the band wide. As an overlay (sideways, `AppSettings.padOverlay`) the pad is
+/// drawn translucent over the trackpad or picture instead: stick and diamond in its bottom
+/// corners, the keys in a row between them, the key row docked under the pane by the parent.
 /// Every control reports to `ControllerBridge`, so the profile that drives a physical pad
 /// drives this one. The keys share the strip's multi-touch overlay, so a finger sliding
 /// from one to the next releases the first and presses the next.
@@ -21,7 +23,11 @@ struct ControllerView: View {
     /// and to the air around it.
     var rowHeight: CGFloat? = nil
     var wide = false
+    /// Over the trackpad or picture: fills its parent (the pane), ignores `rowHeight` and
+    /// `wide`, and takes only the touches that land on a control (see `overlayBody`).
+    var overlay = false
     /// The strip's F bar and key row (`AppSettings.showKeyRow`, the bar's ⌘ button).
+    /// Off as an overlay: the parent docks the row under the pane instead.
     var showKeys = true
     @State private var keyFrames: [Int: CGRect] = [:]
     @State private var pressedCodes = Set<Int>()
@@ -58,6 +64,8 @@ struct ControllerView: View {
             Group {
                 if state.keyboardShown {
                     if showKeys { typingBody(geo.size) }
+                } else if overlay {
+                    overlayBody(geo.size)
                 } else if wide && (rowHeight != nil || geo.size.width > geo.size.height * 2.2) {
                     // Filling a room that is wide but not that wide (the flat half of an
                     // upright, half-open Duo is about 1.7:1), the band would be a strip across
@@ -78,7 +86,7 @@ struct ControllerView: View {
                                      onPress: { press($0, true) }, onRelease: { press($0, false) },
                                      onPressedChange: { pressedCodes = $0 }))
         }
-        .frame(height: rowHeight.map { blockHeight(rowHeight: $0) })
+        .frame(height: overlay ? nil : rowHeight.map { blockHeight(rowHeight: $0) })
     }
 
     /// The iOS keyboard has taken the pad's place: just the strip row, full width, for
@@ -215,13 +223,57 @@ struct ControllerView: View {
         .frame(height: band)
     }
 
+    /// Over the trackpad or picture, like touch controls over a game: the stick in the
+    /// bottom-leading corner, the diamond in the bottom-trailing one, both 24pt in from the
+    /// pane's sides and 16pt up from its bottom, and the seven programmable keys in one row
+    /// centred between them along the same bottom line, slimmer than the band's.
+    /// Sized from the pane's width (the height only caps it, on a pane far shorter than a
+    /// phone's), so docking the key row under the pane (⌘) moves nothing: the stick a little
+    /// bigger than the band's, the face buttons and the keys in proportion to it.
+    /// Only the controls take touches: no container here has a background, a content shape
+    /// or a gesture, and the touch overlay claims only the key frames, so every touch that
+    /// misses a control reaches the trackpad underneath. The dark disc behind the stick
+    /// keeps its ring visible over a bright picture.
+    private func overlayBody(_ size: CGSize) -> some View {
+        let edge: CGFloat = 24      // off the pane's sides
+        let bottom: CGFloat = 16    // off its bottom
+        let air: CGFloat = 16       // at least, between the keys and the stick or the diamond
+        let stick = max(0, min(size.width * 0.18, size.height * 0.55))
+        let face = stick * 0.36     // a face button's diameter
+        let diamondWidth = face * 3 + gap * 2
+        let keyRow = stick * 0.28   // the keys' height
+        let room = size.width - edge * 2 - stick - diamondWidth - air * 2
+        // Key-shaped: as wide as the room allows, but never wider than 1.5 heights.
+        let unit = max(0, min(keyRow * 1.5, (room - gap * 6) / 7))
+        return HStack(alignment: .bottom, spacing: 0) {
+            VirtualStick(controller: controller)
+                .frame(width: stick, height: stick)
+                .background(Circle().fill(Color.black.opacity(0.2)).allowsHitTesting(false))
+            Spacer(minLength: air)
+            HStack(spacing: gap) {
+                ForEach(ControllerView.topRow, id: \.0) { control, tag in
+                    key(control, tag: tag).frame(width: unit, height: keyRow)
+                }
+            }
+            Spacer(minLength: air)
+            diamond(unit: face, row: face)
+                .frame(width: diamondWidth, height: face + 2 * diamondLift(face))
+        }
+        .padding(.horizontal, edge)
+        .padding(.bottom, bottom)
+        .frame(width: size.width, height: size.height, alignment: .bottom)
+    }
+
+    /// How far Y and A sit above and below the X–B row, for a face button `d` across.
+    private func diamondLift(_ d: CGFloat) -> CGFloat { (d + gap) * 0.6 }
+
     /// Y and A sit 40% closer to the X–B row than a full row away: a tighter diamond
     /// the thumb covers without stretching, centred in its area.
     /// The face buttons are round, the one place on the pad that is: a controller's buttons,
     /// not keys. Each is a circle as big as the key cell allows.
     private func diamond(unit: CGFloat, row: CGFloat) -> some View {
         let d = min(unit, row)
-        let lift = (d + gap) * 0.6
+        let lift = diamondLift(d)
         return ZStack {
             key(.y, "Y", round: true).frame(width: d, height: d).offset(y: -lift)
             key(.x, "X", round: true).frame(width: d, height: d).offset(x: -(d + gap))
@@ -233,7 +285,8 @@ struct ControllerView: View {
 
     private func key(_ control: Control, _ text: String? = nil, tag: String? = nil, round: Bool = false) -> some View {
         let code = ControllerView.code(control)
-        return PadKey(action: controller.profile[control], text: text, tag: tag, round: round, pressed: pressedCodes.contains(code))
+        return PadKey(action: controller.profile[control], text: text, tag: tag, round: round, translucent: overlay,
+                      pressed: pressedCodes.contains(code))
             .background(GeometryReader { geo in
                 Color.clear.preference(key: KeyFramesKey.self, value: [code: geo.frame(in: .named("pad"))])
             })
@@ -329,12 +382,19 @@ private struct PadKey: View {
     var text: String? = nil
     var tag: String? = nil
     var round = false
+    /// Over a live picture (the overlay): the background's colour at half strength, which
+    /// pulls whatever is under the key towards the colour the label contrasts with, plus a
+    /// soft shadow in that colour, so labels read over bright and dark pictures alike.
+    /// (The usual key colour at half strength vanished over the plain trackpad, which is
+    /// that colour.) Pressed is the full accent colour either way.
+    var translucent = false
     let pressed: Bool
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                let fill = pressed ? Color.accentColor : Color(.secondarySystemBackground)
+                let fill = pressed ? Color.accentColor
+                    : translucent ? Color(.systemBackground).opacity(0.5) : Color(.secondarySystemBackground)
                 if round {
                     Circle().fill(fill)
                 } else {
@@ -361,6 +421,7 @@ private struct PadKey: View {
                     }
                 }
                 .foregroundStyle(pressed ? Color.white : Color.primary)
+                .shadow(color: translucent && !pressed ? Color(.systemBackground).opacity(0.9) : .clear, radius: 2)
                 .padding(.horizontal, 2)
             }
         }

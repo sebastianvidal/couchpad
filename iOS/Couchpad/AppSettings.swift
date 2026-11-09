@@ -23,6 +23,10 @@ final class AppSettings: ObservableObject {
     /// The key row (F1–F12 bar, esc, tab, fn, the modifiers): under the trackpad or picture,
     /// or at the top of the pad. On by default; the bar's ⌘ button toggles it everywhere.
     @Published var showKeyRow: Bool { didSet { save("showKeyRow", showKeyRow) } }
+    /// Sideways, the pad drawn over the trackpad or picture (stick and diamond in its bottom
+    /// corners, the programmable keys between them) instead of in a band under it, like touch
+    /// controls over a game. Does nothing upright or half open.
+    @Published var padOverlay: Bool { didSet { save("padOverlay", padOverlay) } }
 
     init() {
         let d = UserDefaults.standard
@@ -40,6 +44,7 @@ final class AppSettings: ObservableObject {
         screenQuality = d.object(forKey: "screenQuality") as? Int ?? 1
         showController = d.object(forKey: "showController") as? Bool ?? false
         showKeyRow = d.object(forKey: "showKeyRow") as? Bool ?? true
+        padOverlay = d.object(forKey: "padOverlay") as? Bool ?? false
     }
 
     private func save(_ key: String, _ value: Any) {

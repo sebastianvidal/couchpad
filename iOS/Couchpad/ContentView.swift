@@ -319,7 +319,8 @@ struct ContentView: View {
 
     /// The screen layout's skeleton without the picture: the trackpad full width, the key
     /// row under it (when on), then the bar; with the pad on, a short band under the
-    /// trackpad instead.
+    /// trackpad instead, or (`padOverlaid`) the pad over the trackpad with the key row
+    /// docked under it as when the pad is off.
     /// Nothing here moves for the keyboard: the whole body ignores it, and instead everything
     /// is inset by the keyboard's height while it is up, so the trackpad shrinks and the row
     /// and the bar sit just above the keyboard (as in the screen layout).
@@ -328,7 +329,7 @@ struct ContentView: View {
             let inset = keyboardInset(geo)
             let above = geo.size.height - inset - 36 - 6   // what is left over the bar and its gap
             VStack(spacing: 6) {
-                trackpad
+                trackpad.overlay { overlaidPad }
                 if padOnScreen {
                     // Sideways the pad is a short band under the trackpad, thumbs at the
                     // bottom corners, rather than a column beside it.
@@ -445,10 +446,12 @@ struct ContentView: View {
             let inset = keyboardInset(geo)
             let availableHeight = geo.size.height - inset - 36 - 6
             VStack(spacing: 6) {
-                trackpad
+                // Sideways with "Pad over the picture" on, the pad floats over the picture,
+                // which keeps the whole height (`padOverlaid`).
+                trackpad.overlay { overlaidPad }
                 if padOnScreen {
-                    // The pad never floats over the picture: the picture gives up the room.
-                    // Upright it takes the bottom half (a Game Boy); sideways, a short band under it.
+                    // Otherwise the pad never floats over the picture: the picture gives up the
+                    // room. Upright it takes the bottom half (a Game Boy); sideways, a short band under it.
                     if isLandscape {
                         ControllerView(controller: controller, client: client, state: inputState, rowHeight: wideRowHeight(availableHeight), wide: true, showKeys: settings.showKeyRow)
                     } else {
@@ -559,21 +562,43 @@ struct ContentView: View {
     }
 
     /// The key row (F bar over esc, tab, fn and the modifiers), docked under the trackpad
-    /// or picture when the pad is off (the pad has its own at its top) and the bar's ⌘
-    /// button has it on. Upright it keeps the pad's row height; sideways, where height is
-    /// short, it is a slimmer row.
+    /// or picture when the pad is off or overlaid (the pad in the stack has its own at its
+    /// top) and the bar's ⌘ button has it on. Upright it keeps the pad's row height;
+    /// sideways, where height is short, it is a slimmer row.
     private var keyRow: some View {
         KeyStripView(client: client, state: inputState, rowHeight: isLandscape ? 36 : portraitRowHeight)
     }
 
-    /// The pad is on screen unless the iOS keyboard has taken its place with the key row
-    /// off: then nothing is left of it, and the keyboard sits right under the bar.
-    private var padOnScreen: Bool {
-        settings.showController && (settings.showKeyRow || !inputState.keyboardShown)
+    /// Sideways with "Pad over the picture" on (`AppSettings.padOverlay`), the pad is drawn
+    /// over the trackpad or picture instead of in the stack under it: the pane keeps the whole
+    /// height above the bar and the docked key row. Not upright, not half open.
+    private var padOverlaid: Bool {
+        settings.showController && settings.padOverlay && isLandscape && !hingePartlyOpen
     }
 
-    /// The key row docked on its own, under the trackpad or picture (the pad has its own).
-    private var keyRowDocked: Bool { !settings.showController && settings.showKeyRow }
+    /// The overlay is drawn while the iOS keyboard is down. With the keyboard up it goes
+    /// away entirely and the docked key row (when on) sits above the keyboard, as with the
+    /// pad off.
+    private var overlayShown: Bool { padOverlaid && !inputState.keyboardShown }
+
+    /// The pad in the stack, under the trackpad or picture (or on the flat half), unless it
+    /// is overlaid, or the iOS keyboard has taken its place with the key row off: then
+    /// nothing is left of it, and the keyboard sits right under the bar.
+    private var padOnScreen: Bool {
+        settings.showController && !padOverlaid && (settings.showKeyRow || !inputState.keyboardShown)
+    }
+
+    /// The key row docked on its own, under the trackpad or picture: with the pad off, or
+    /// overlaid (the pad in the stack has its own at its top).
+    private var keyRowDocked: Bool { (!settings.showController || padOverlaid) && settings.showKeyRow }
+
+    /// The pad over the trackpad or picture, filling its pane, while `overlayShown`. Outside
+    /// the pane's ZStack, so pinching the picture neither moves nor scales it.
+    @ViewBuilder private var overlaidPad: some View {
+        if overlayShown {
+            ControllerView(controller: controller, client: client, state: inputState, overlay: true, showKeys: false)
+        }
+    }
 
     /// Row height for the wide pad band: short, so the picture keeps most of the height.
     private func wideRowHeight(_ available: CGFloat) -> CGFloat {
@@ -748,6 +773,7 @@ struct ContentView: View {
                     Toggle("Tap, then touch-and-hold to drag", isOn: $settings.tapToDrag)
                     Toggle("Three-finger swipes (Mission Control, Spaces)", isOn: $settings.threeFingerSwipes)
                     Toggle("Trackpad on the right (half open, sideways)", isOn: $settings.trackpadOnRight)
+                    Toggle("Pad over the picture (sideways)", isOn: $settings.padOverlay)
                 }
                 Section("Keys") {
                     Toggle("Key row", isOn: $settings.showKeyRow)
