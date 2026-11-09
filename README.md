@@ -126,8 +126,8 @@ https://sebastianvidal.github.io/couchpad/controller.html
   **Sideways** it is a short band under the picture: stick, keys, diamond; or, with Settings →
   Pad over the picture, it floats translucent over the picture, the key row with it, and the
   picture keeps the whole height, like touch controls over a game. Settings → Overlay opacity
-  sets how solid its keys are, labels included, from invisible until pressed to solid keys
-  (half by default). **Half open
+  sets how solid its keys are, from faint labels only to solid keys (half by default); the
+  labels stay a little stronger than the keys, so they never disappear. **Half open
   on an iPhone Duo** it fills the flat half and the picture sits on the upright one.
 - **Aim** with the picture or trackpad above it: it still moves the mouse, sent as raw
   motion, which is what games use for camera look.

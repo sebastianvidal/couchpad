@@ -30,7 +30,7 @@ final class AppSettings: ObservableObject {
     /// controls over a game. Does nothing upright or half open.
     @Published var padOverlay: Bool { didSet { save("padOverlay", padOverlay) } }
     /// How solid the overlaid pad's and key row's resting keys are, fills and labels alike,
-    /// 0 (only pressed keys show) to 1 (solid keys); the stick's dark disc follows in
+    /// 0 (labels only, faint) to 1 (solid keys), the labels 20 points above the fills; the stick's dark disc follows in
     /// proportion. Pressed, held and the bar's coloured states are unaffected. Half by default.
     @Published var overlayOpacity: Double { didSet { save("overlayOpacity", overlayOpacity) } }
 

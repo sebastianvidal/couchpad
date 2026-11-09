@@ -27,8 +27,9 @@ struct ControllerView: View {
     /// Over the trackpad or picture: fills its parent (the pane), ignores `rowHeight` and
     /// `wide`, and takes only the touches that land on a control (see `overlayBody`).
     var overlay = false
-    /// How solid the overlay's resting keys are, fills and labels alike, 0 (only pressed
-    /// keys show) to 1 (solid keys): `AppSettings.overlayOpacity`. Only used with `overlay`.
+    /// How solid the overlay's resting keys are, 0 (labels only, faint) to 1 (solid keys):
+    /// `AppSettings.overlayOpacity`, the labels a little stronger (`KeyButton.labelOpacity`).
+    /// Only used with `overlay`.
     var overlayOpacity: Double = 0.5
     /// The strip's F bar and key row (`AppSettings.showKeyRow`, the bar's ⌘ button).
     var showKeys = true
@@ -440,7 +441,8 @@ private struct PadKey: View {
     /// Over a live picture (the overlay), how solid the resting key is (`AppSettings.overlayOpacity`,
     /// half by default): the fill, the background's colour, which pulls whatever is under
     /// the key towards the colour the label contrasts with, and the label with its soft
-    /// shadow in that colour, so it reads over bright and dark pictures alike. (The usual key
+    /// shadow in that colour, a little stronger (`KeyButton.labelOpacity`), so it reads
+    /// over bright and dark pictures alike. (The usual key
     /// colour at half strength vanished over the plain trackpad, which is that colour.) Nil
     /// is the solid docked look. Pressed is the full accent colour and a full label either way.
     var overlayOpacity: Double? = nil
@@ -477,7 +479,7 @@ private struct PadKey: View {
                 }
                 .foregroundStyle(pressed ? Color.white : Color.primary)
                 .labelShadow(overlayOpacity != nil && !pressed)
-                .opacity(pressed ? 1 : overlayOpacity ?? 1)
+                .opacity(pressed ? 1 : KeyButton.labelOpacity(overlayOpacity: overlayOpacity))
                 .padding(.horizontal, 2)
             }
         }

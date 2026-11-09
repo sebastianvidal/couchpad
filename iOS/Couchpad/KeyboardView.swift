@@ -30,8 +30,8 @@ struct KeyStripView: View {
     /// The pad owns the F toggle, so it can make room for the second F row.
     var showFExternal: Binding<Bool>? = nil
     /// Over a live picture (the overlaid pad), how solid the resting keys are
-    /// (`AppSettings.overlayOpacity`): flat fills and labels that strong, the labels with a
-    /// soft shadow, like the pad's own keys (`PadKey.overlayOpacity`). Pressed, held, F-open
+    /// (`AppSettings.overlayOpacity`): flat fills that strong and labels a little stronger
+    /// (`KeyButton.labelOpacity`), with a soft shadow, like the pad's own keys (`PadKey.overlayOpacity`). Pressed, held, F-open
     /// and Release keep their colours and full labels. Nil is the solid docked look.
     var overlayOpacity: Double? = nil
     @State private var showFState = false
@@ -106,7 +106,7 @@ struct KeyStripView: View {
                     Text("F1–F12").font(.caption)
                 }
                 .labelShadow(overlayOpacity != nil)
-                .opacity(showF ? 1 : overlayOpacity ?? 1)
+                .opacity(showF ? 1 : KeyButton.labelOpacity(overlayOpacity: overlayOpacity))
                 .frame(maxWidth: .infinity)
                 .frame(height: barHeight)
                 .background(showF ? Color.accentColor.opacity(0.35) : KeyButton.fill(overlayOpacity: overlayOpacity),
@@ -295,6 +295,13 @@ struct KeyButton: View {
         return Color(.secondarySystemBackground)
     }
 
+    /// A resting key's label over a live picture: 20 points above `overlayOpacity`, so a key
+    /// can always be found, faintly, even at 0. Nil (docked), fully solid.
+    static func labelOpacity(overlayOpacity: Double?) -> Double {
+        guard let overlayOpacity else { return 1 }
+        return min(1, overlayOpacity + 0.2)
+    }
+
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -312,7 +319,7 @@ struct KeyButton: View {
             .fontWeight(.medium)
             .foregroundStyle(pressed || isHeld ? Color.white : Color.primary)
             .labelShadow(overlayOpacity != nil && !pressed && !isHeld)
-            .opacity(pressed || isHeld ? 1 : overlayOpacity ?? 1)
+            .opacity(pressed || isHeld ? 1 : KeyButton.labelOpacity(overlayOpacity: overlayOpacity))
         }
     }
 }
