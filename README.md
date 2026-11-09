@@ -11,9 +11,10 @@ between, on your Wi-Fi or through your VPN.
 **Status (November 2026)**
 - **iPhone:** public **TestFlight beta** — https://testflight.apple.com/join/kY67K51G — ahead
   of a free App Store release. Supports iPhone Duo, folded or unfolded, in both orientations.
-- **Mac:** **1.6 released**, signed and notarized —
-  [download](https://github.com/sebastianvidal/couchpad/releases/latest). 1.6 sends the Mac's
-  sound to the phone with the picture (see [What's new in Mac 1.6](#whats-new-in-mac-16));
+- **Mac:** **1.7 released**, signed and notarized —
+  [download](https://github.com/sebastianvidal/couchpad/releases/latest). 1.7 keeps the picture
+  going with a MacBook's lid closed (see [What's new in Mac 1.7](#whats-new-in-mac-17));
+  1.6 sends the Mac's sound to the phone with the picture;
   1.5 keeps the picture smooth when a game goes fullscreen;
   1.4 keeps it smooth when a phone's connection drops and comes back, and brings it back
   after the display sleeps; 1.3 wakes a sleeping display on input from the phone and opens its
@@ -40,7 +41,7 @@ between, on your Wi-Fi or through your VPN.
   silent mode and mixes with whatever else the phone plays. It is on whenever the picture is;
   Settings → Screen or the dot's menu in the bar turns it off. The Mac keeps playing its own
   sound as well.
-- **Next Mac release:** the picture keeps going with a MacBook's **lid closed**, on the
+- **New in Mac 1.7:** the picture keeps going with a MacBook's **lid closed**, on the
   charger. Closed, macOS used to switch the display off ten seconds after every touch, and the
   picture restarted each time. Now Couchpad attaches a virtual display, which macOS treats
   like a monitor, so the closed Mac stays awake with its screen on. Just after closing you
@@ -54,6 +55,20 @@ between, on your Wi-Fi or through your VPN.
   no code changes: the phone just needs a route to the Mac. Setup below.
 
 Site: https://sebastianvidal.github.io/couchpad/
+
+## What's new in Mac 1.7
+
+The picture keeps going with a MacBook's lid closed, on the charger. Closed, with no monitor,
+macOS used to switch the display off ten seconds after every touch from the phone, and the
+picture restarted each time. Now Couchpad attaches a virtual display while the lid is closed
+and a phone wants the picture. macOS treats it like a monitor, so the closed Mac stays awake
+with its screen on. Just after closing you keep seeing your own desktop at its usual size;
+the virtual display mirrors it, out of sight, and no window moves. Once macOS lets the
+built-in display go (after the lid has been closed a while), the virtual one becomes the
+screen, 16:10 like a 13-inch MacBook. It goes away when the lid opens, or five minutes after
+the last phone stops watching. On battery macOS sleeps a closed Mac whatever is attached,
+so the phone says to plug it in instead. Works with any iPhone build that shows the picture;
+install 1.7 over 1.6.
 
 ## What's new in Mac 1.6
 
@@ -81,7 +96,7 @@ Nothing to set up; install 1.5 over 1.4.
 1. **iPhone:** install [TestFlight](https://apps.apple.com/app/testflight/id899247664), then
    open https://testflight.apple.com/join/kY67K51G on the phone and tap Install. Allow
    **Local Network** when asked, otherwise the app can't find your computer.
-2. **Mac:** download `Couchpad-1.6.dmg` from
+2. **Mac:** download `Couchpad-1.7.dmg` from
    [Releases](https://github.com/sebastianvidal/couchpad/releases/latest), drag Couchpad to
    Applications, open it. A cursor icon appears in the menu bar. Grant **Accessibility** when
    macOS asks (System Settings → Privacy & Security → Accessibility); that permission is what
