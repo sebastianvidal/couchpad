@@ -85,7 +85,7 @@ carries the Mac's address, or type it into Settings → Connection on the phone.
 | Three-finger swipe         | Up: Mission Control · Down: App Exposé · Left/right: switch Spaces (Windows: Task View / desktop / virtual desktops) |
 | Left / Right buttons       | Hold the mouse button                    |
 | iOS keyboard               | Typing, backspace, return as real key presses |
-| Key row                    | An F1–F12 bar, then esc, tab, fn, ⇧ ⌃ ⌥ ⌘, on by default; the ⌘ button in the bar hides and shows it. Keys go down while touched and up on release. Above the on-screen controller when it is on (over the picture with it when the pad floats over the picture, in the same translucent style), under the picture or trackpad when it is off. The F1–F12 bar swaps the row for two rows of function keys; while a modifier is held it also shows Release. Half open on an iPhone Duo while typing, the keyboard takes the flat half and the row floats over the picture while it is on |
+| Key row                    | An F1–F12 bar, then esc, tab, fn, ⇧ ⌃ ⌥ ⌘, on by default; the ⌘ button in the bar hides and shows it. Keys go down while touched and up on release. Above the on-screen controller when it is on (over the picture with it when the pad floats over the picture, in the same translucent style, at the same adjustable opacity), under the picture or trackpad when it is off. The F1–F12 bar swaps the row for two rows of function keys; while a modifier is held it also shows Release. Half open on an iPhone Duo while typing, the keyboard takes the flat half and the row floats over the picture while it is on |
 | ⇧ ⌃ ⌥ ⌘ fn                 | Toggle: held until tapped again; typed letters become shortcuts (⌘C etc.) |
 | On a Windows host          | The same keys show as Ctrl / Alt / Win; fn is hidden |
 | Keyboard button (bar)      | Show / hide the iOS keyboard. Space and typing come from it. With the on-screen controller on, the keyboard takes the pad's place (the key row, when on, stays above it) until you put it away |
@@ -112,8 +112,9 @@ https://sebastianvidal.github.io/couchpad/controller.html
 - **Upright** the pad takes the bottom half of the screen, under the picture or trackpad.
   **Sideways** it is a short band under the picture: stick, keys, diamond; or, with Settings →
   Pad over the picture, it floats translucent over the picture, the key row with it, and the
-  picture keeps the whole height, like touch controls over a game. **Half open on an iPhone
-  Duo** it fills the flat half and the picture sits on the upright one.
+  picture keeps the whole height, like touch controls over a game. Settings → Overlay opacity
+  sets how solid its keys are, from labels only to solid keys (half by default). **Half open
+  on an iPhone Duo** it fills the flat half and the picture sits on the upright one.
 - **Aim** with the picture or trackpad above it: it still moves the mouse, sent as raw
   motion, which is what games use for camera look.
 - **Bindings** are the same as a physical controller's, in Settings → Controller → Bindings.

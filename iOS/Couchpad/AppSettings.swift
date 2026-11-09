@@ -29,6 +29,10 @@ final class AppSettings: ObservableObject {
     /// corners, the programmable keys between them) instead of in a band under it, like touch
     /// controls over a game. Does nothing upright or half open.
     @Published var padOverlay: Bool { didSet { save("padOverlay", padOverlay) } }
+    /// How solid the overlaid pad's and key row's resting fills are, 0 (labels only, with
+    /// their soft shadow) to 1 (solid keys); the stick's dark disc follows in proportion.
+    /// Pressed, held and the bar's coloured states are unaffected. Half by default.
+    @Published var overlayOpacity: Double { didSet { save("overlayOpacity", overlayOpacity) } }
 
     init() {
         let d = UserDefaults.standard
@@ -48,6 +52,7 @@ final class AppSettings: ObservableObject {
         showController = d.object(forKey: "showController") as? Bool ?? false
         showKeyRow = d.object(forKey: "showKeyRow") as? Bool ?? true
         padOverlay = d.object(forKey: "padOverlay") as? Bool ?? false
+        overlayOpacity = min(1, max(0, d.object(forKey: "overlayOpacity") as? Double ?? 0.5))
     }
 
     private func save(_ key: String, _ value: Any) {

@@ -620,7 +620,8 @@ struct ContentView: View {
     /// the pane's ZStack, so pinching the picture neither moves nor scales it.
     @ViewBuilder private var overlaidPad: some View {
         if overlayShown {
-            ControllerView(controller: controller, client: client, state: inputState, overlay: true, showKeys: settings.showKeyRow)
+            ControllerView(controller: controller, client: client, state: inputState, overlay: true,
+                           overlayOpacity: settings.overlayOpacity, showKeys: settings.showKeyRow)
         }
     }
 
@@ -798,6 +799,12 @@ struct ContentView: View {
                     Toggle("Three-finger swipes (Mission Control, Spaces)", isOn: $settings.threeFingerSwipes)
                     Toggle("Trackpad on the right (half open, sideways)", isOn: $settings.trackpadOnRight)
                     Toggle("Pad over the picture (sideways)", isOn: $settings.padOverlay)
+                    if settings.padOverlay {
+                        VStack(alignment: .leading) {
+                            Text("Overlay opacity: \(Int((settings.overlayOpacity * 100).rounded()))%")
+                            Slider(value: $settings.overlayOpacity, in: 0...1, step: 0.05)
+                        }
+                    }
                 }
                 Section("Keys") {
                     Toggle("Key row", isOn: $settings.showKeyRow)

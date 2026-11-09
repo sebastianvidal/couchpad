@@ -8,8 +8,9 @@ import UIKit
 /// screen; wide, everything sits in one short band: stick, keys, diamond. The strip's
 /// F bar and key row, when shown (the bar's ⌘ button), are above the keys tall and over
 /// them in the band wide. As an overlay (sideways, `AppSettings.padOverlay`) the pad is
-/// drawn translucent over the trackpad or picture instead: stick and diamond in its bottom
-/// corners, the keys in a row between them with the strip (when shown) over them.
+/// drawn translucent over the trackpad or picture instead (as solid as
+/// `AppSettings.overlayOpacity`): stick and diamond in its bottom corners, the keys in a row
+/// between them with the strip (when shown) over them.
 /// Every control reports to `ControllerBridge`, so the profile that drives a physical pad
 /// drives this one. The keys share the strip's multi-touch overlay, so a finger sliding
 /// from one to the next releases the first and presses the next.
@@ -26,6 +27,9 @@ struct ControllerView: View {
     /// Over the trackpad or picture: fills its parent (the pane), ignores `rowHeight` and
     /// `wide`, and takes only the touches that land on a control (see `overlayBody`).
     var overlay = false
+    /// How solid the overlay's resting fills are, 0 (labels only) to 1 (solid keys):
+    /// `AppSettings.overlayOpacity`. Only used with `overlay`.
+    var overlayOpacity: Double = 0.5
     /// The strip's F bar and key row (`AppSettings.showKeyRow`, the bar's ⌘ button).
     var showKeys = true
     @State private var keyFrames: [Int: CGRect] = [:]
@@ -227,7 +231,7 @@ struct ControllerView: View {
     /// pane's sides and 16pt up from its bottom, and the seven programmable keys in one row
     /// centred between them along the same bottom line, slimmer than the band's. With the
     /// key row on (⌘), the strip sits right over those keys, as wide as their seven columns
-    /// and at their row height, translucent like them; as in the band, opening F1–F12 swaps
+    /// and at their row height, as translucent as them; as in the band, opening F1–F12 swaps
     /// the strip's row and the programmable keys for the two F rows, so the overlay covers
     /// no more of the picture and nothing moves (the column is bottom-aligned and as tall
     /// either way: bar, then two rows).
@@ -239,7 +243,9 @@ struct ControllerView: View {
     /// or a gesture, the strip's F bar is a button the size of the bar, and both touch
     /// overlays claim only their key frames, so every touch that misses a control (the
     /// gaps between keys included) reaches the trackpad underneath. The dark disc behind
-    /// the stick keeps its ring visible over a bright picture.
+    /// the stick keeps its ring visible over a bright picture; it follows `overlayOpacity`
+    /// like the keys' fills (0.2 black at the default 0.5), while the ring and knob, the
+    /// stick's equivalent of a label, stay as they are.
     private func overlayBody(_ size: CGSize) -> some View {
         let edge: CGFloat = 24      // off the pane's sides
         let bottom: CGFloat = 16    // off its bottom
@@ -254,11 +260,12 @@ struct ControllerView: View {
         return HStack(alignment: .bottom, spacing: 0) {
             VirtualStick(controller: controller)
                 .frame(width: stick, height: stick)
-                .background(Circle().fill(Color.black.opacity(0.2)).allowsHitTesting(false))
+                .background(Circle().fill(Color.black.opacity(0.4 * overlayOpacity)).allowsHitTesting(false))
             Spacer(minLength: air)
             VStack(spacing: gap) {
                 if showKeys {
-                    KeyStripView(client: client, state: state, rowHeight: keyRow, showFExternal: $showF, translucent: true)
+                    KeyStripView(client: client, state: state, rowHeight: keyRow, showFExternal: $showF,
+                                 overlayOpacity: overlayOpacity)
                         .frame(width: unit * 7 + gap * 6)
                 }
                 if !(showKeys && showF) {
@@ -299,7 +306,8 @@ struct ControllerView: View {
 
     private func key(_ control: Control, _ text: String? = nil, tag: String? = nil, round: Bool = false) -> some View {
         let code = ControllerView.code(control)
-        return PadKey(action: controller.profile[control], text: text, tag: tag, round: round, translucent: overlay,
+        return PadKey(action: controller.profile[control], text: text, tag: tag, round: round,
+                      overlayOpacity: overlay ? overlayOpacity : nil,
                       pressed: pressedCodes.contains(code))
             .background(GeometryReader { geo in
                 Color.clear.preference(key: KeyFramesKey.self, value: [code: geo.frame(in: .named("pad"))])
@@ -429,19 +437,19 @@ private struct PadKey: View {
     var text: String? = nil
     var tag: String? = nil
     var round = false
-    /// Over a live picture (the overlay): the background's colour at half strength, which
-    /// pulls whatever is under the key towards the colour the label contrasts with, plus a
-    /// soft shadow in that colour, so labels read over bright and dark pictures alike.
-    /// (The usual key colour at half strength vanished over the plain trackpad, which is
-    /// that colour.) Pressed is the full accent colour either way.
-    var translucent = false
+    /// Over a live picture (the overlay), the resting fill's opacity (`AppSettings.overlayOpacity`,
+    /// half by default): the background's colour, which pulls whatever is under the key
+    /// towards the colour the label contrasts with, plus a soft shadow in that colour, so
+    /// labels read over bright and dark pictures alike, even at 0. (The usual key colour
+    /// at half strength vanished over the plain trackpad, which is that colour.) Nil is the
+    /// solid docked look. Pressed is the full accent colour either way.
+    var overlayOpacity: Double? = nil
     let pressed: Bool
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                let fill = pressed ? Color.accentColor
-                    : translucent ? Color(.systemBackground).opacity(0.5) : Color(.secondarySystemBackground)
+                let fill = pressed ? Color.accentColor : KeyButton.fill(overlayOpacity: overlayOpacity)
                 if round {
                     Circle().fill(fill)
                 } else {
@@ -468,7 +476,7 @@ private struct PadKey: View {
                     }
                 }
                 .foregroundStyle(pressed ? Color.white : Color.primary)
-                .shadow(color: translucent && !pressed ? Color(.systemBackground).opacity(0.9) : .clear, radius: 2)
+                .labelShadow(overlayOpacity != nil && !pressed)
                 .padding(.horizontal, 2)
             }
         }
