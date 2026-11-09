@@ -27,8 +27,8 @@ struct ControllerView: View {
     /// Over the trackpad or picture: fills its parent (the pane), ignores `rowHeight` and
     /// `wide`, and takes only the touches that land on a control (see `overlayBody`).
     var overlay = false
-    /// How solid the overlay's resting fills are, 0 (labels only) to 1 (solid keys):
-    /// `AppSettings.overlayOpacity`. Only used with `overlay`.
+    /// How solid the overlay's resting keys are, fills and labels alike, 0 (only pressed
+    /// keys show) to 1 (solid keys): `AppSettings.overlayOpacity`. Only used with `overlay`.
     var overlayOpacity: Double = 0.5
     /// The strip's F bar and key row (`AppSettings.showKeyRow`, the bar's ⌘ button).
     var showKeys = true
@@ -244,8 +244,8 @@ struct ControllerView: View {
     /// overlays claim only their key frames, so every touch that misses a control (the
     /// gaps between keys included) reaches the trackpad underneath. The dark disc behind
     /// the stick keeps its ring visible over a bright picture; it follows `overlayOpacity`
-    /// like the keys' fills (0.2 black at the default 0.5), while the ring and knob, the
-    /// stick's equivalent of a label, stay as they are.
+    /// like the keys' fills and labels (0.2 black at the default 0.5), while the ring and
+    /// knob, faint already, stay as they are.
     private func overlayBody(_ size: CGSize) -> some View {
         let edge: CGFloat = 24      // off the pane's sides
         let bottom: CGFloat = 16    // off its bottom
@@ -437,12 +437,12 @@ private struct PadKey: View {
     var text: String? = nil
     var tag: String? = nil
     var round = false
-    /// Over a live picture (the overlay), the resting fill's opacity (`AppSettings.overlayOpacity`,
-    /// half by default): the background's colour, which pulls whatever is under the key
-    /// towards the colour the label contrasts with, plus a soft shadow in that colour, so
-    /// labels read over bright and dark pictures alike, even at 0. (The usual key colour
-    /// at half strength vanished over the plain trackpad, which is that colour.) Nil is the
-    /// solid docked look. Pressed is the full accent colour either way.
+    /// Over a live picture (the overlay), how solid the resting key is (`AppSettings.overlayOpacity`,
+    /// half by default): the fill, the background's colour, which pulls whatever is under
+    /// the key towards the colour the label contrasts with, and the label with its soft
+    /// shadow in that colour, so it reads over bright and dark pictures alike. (The usual key
+    /// colour at half strength vanished over the plain trackpad, which is that colour.) Nil
+    /// is the solid docked look. Pressed is the full accent colour and a full label either way.
     var overlayOpacity: Double? = nil
     let pressed: Bool
 
@@ -477,6 +477,7 @@ private struct PadKey: View {
                 }
                 .foregroundStyle(pressed ? Color.white : Color.primary)
                 .labelShadow(overlayOpacity != nil && !pressed)
+                .opacity(pressed ? 1 : overlayOpacity ?? 1)
                 .padding(.horizontal, 2)
             }
         }

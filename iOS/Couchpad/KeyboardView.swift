@@ -29,10 +29,10 @@ struct KeyStripView: View {
     var rowHeight: CGFloat = 42
     /// The pad owns the F toggle, so it can make room for the second F row.
     var showFExternal: Binding<Bool>? = nil
-    /// Over a live picture (the overlaid pad), the resting fills' opacity
-    /// (`AppSettings.overlayOpacity`): flat fills that strong with a soft label shadow, like
-    /// the pad's own keys (`PadKey.overlayOpacity`). Pressed, held, F-open and Release keep
-    /// their colours. Nil is the solid docked look.
+    /// Over a live picture (the overlaid pad), how solid the resting keys are
+    /// (`AppSettings.overlayOpacity`): flat fills and labels that strong, the labels with a
+    /// soft shadow, like the pad's own keys (`PadKey.overlayOpacity`). Pressed, held, F-open
+    /// and Release keep their colours and full labels. Nil is the solid docked look.
     var overlayOpacity: Double? = nil
     @State private var showFState = false
     private var showF: Bool { showFExternal?.wrappedValue ?? showFState }
@@ -106,6 +106,7 @@ struct KeyStripView: View {
                     Text("F1–F12").font(.caption)
                 }
                 .labelShadow(overlayOpacity != nil)
+                .opacity(showF ? 1 : overlayOpacity ?? 1)
                 .frame(maxWidth: .infinity)
                 .frame(height: barHeight)
                 .background(showF ? Color.accentColor.opacity(0.35) : KeyButton.fill(overlayOpacity: overlayOpacity),
@@ -283,7 +284,7 @@ struct KeyButton: View {
     let pressed: Bool
     let isHeld: Bool
     var windows = false
-    /// Over a live picture, the resting fill's opacity; nil is solid (see `fill`).
+    /// Over a live picture, the resting fill's and label's opacity; nil is solid (see `fill`).
     var overlayOpacity: Double? = nil
 
     /// A key's resting fill. Over a live picture, the background's colour at `overlayOpacity`
@@ -311,6 +312,7 @@ struct KeyButton: View {
             .fontWeight(.medium)
             .foregroundStyle(pressed || isHeld ? Color.white : Color.primary)
             .labelShadow(overlayOpacity != nil && !pressed && !isHeld)
+            .opacity(pressed || isHeld ? 1 : overlayOpacity ?? 1)
         }
     }
 }

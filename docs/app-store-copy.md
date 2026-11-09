@@ -145,7 +145,7 @@ This build plays the Mac's sound with the picture and lets the controller float 
 • Sound: turn the picture on and play something on the Mac (a video, a game). Does it sound clean? Does it stay in step with the picture? Tell me if you hear dropouts or crackles, and on what Wi-Fi.
 • Sound settings: turn it off and on from the dot's menu in the bar and in Settings → Screen. Flip the silent switch: the sound should keep playing. Play music on the phone first: it should keep playing alongside.
 • Sound and other apps: take a call or ask Siri something while it plays, then come back; the sound should resume. Leave the app: the sound should stop.
-• Pad over the picture: sideways, turn on Settings → Pad over the picture. The pad and key row should float over the picture, which keeps the full height. Try Overlay opacity from 0% to 100%: are the labels always readable?
+• Pad over the picture: sideways, turn on Settings → Pad over the picture. The pad and key row should float over the picture, which keeps the full height. Try Overlay opacity from 0% to 100%: keys and their labels should fade together, and a pressed key should always show solid. What setting do you end up using?
 • Stick: hold a direction; the slice of the ring under the knob should light up. Tap the stick on one side: it should press that way once.
 
 ## TestFlight — What to Test (1.2)
