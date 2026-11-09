@@ -45,6 +45,19 @@ final class Server {
         var lossReports = 0
         var lossTotal = 0   // never reset; the health check diffs it
         var lostChunks = 0
+        /// Sound: whether this phone asked for it (`v s 1`; only with the picture on), its own
+        /// datagram stream (key, id and counter apart from the picture's), packets sent and
+        /// skipped in the stats window, when recent packets went out (to work out the round
+        /// trip from the phone's echo), its reports summed over the window, the latest one,
+        /// and the smoothed round trip.
+        var wantsSound = false
+        var audio: DatagramCipher?
+        var audioSent = 0
+        var audioSkipped = 0
+        var audioSentAt: [(sequence: UInt32, at: CFAbsoluteTime)] = []
+        var audioWindow = AudioPacket.Report()
+        var audioReport: AudioPacket.Report?
+        var audioRTT: Double?
         init(_ connection: NWConnection) { self.connection = connection }
     }
 
@@ -83,6 +96,8 @@ final class Server {
     private var skipStormTicks = 0
     private var lastStreamStartAt = 0.0
     private var syncPending = false
+    /// The last couple of sound packets, newest first: copies ride along in each datagram.
+    private var recentAudio: [AudioPacket.Packet] = []
 
     /// Bytes allowed in flight per phone before frames are dropped instead of queued: queuing
     /// turns a Wi-Fi hiccup into seconds of lag, dropping turns it into a brief freeze.
@@ -96,6 +111,9 @@ final class Server {
         self.onChange = onChange
         ScreenStreamer.shared.onFrame = { [weak self] frame in
             self?.queue.async { self?.broadcast(frame) }
+        }
+        ScreenStreamer.shared.onAudio = { [weak self] packet in
+            self?.queue.async { self?.broadcastAudio(packet) }
         }
         ScreenStreamer.shared.isCongested = { [weak self] in
             // Called on the encoder's queue; a stale read is harmless here.
@@ -334,6 +352,7 @@ final class Server {
             session.send = FrameCipher(key: key, direction: 1)
             session.recv = FrameCipher(key: key, direction: 0)
             session.video = DatagramCipher(sessionKey: key, isHost: true)
+            session.audio = DatagramCipher(sessionKey: key, isHost: true, keyInfo: AudioPacket.keyInfo, idInfo: AudioPacket.idInfo)
             let reply = "v2 \(hostKey.base64EncodedString()) \(nonce.base64EncodedString())\n"
             session.connection.send(content: Data(reply.utf8), completion: .contentProcessed { _ in })
         }
@@ -392,6 +411,7 @@ final class Server {
 
     /// `v 1 <maxWidth> <maxHeight> <fps>` starts the picture, `v 0` stops it, `v k` asks for a
     /// keyframe (the phone lost sync or just came back), `v a <pts>` acknowledges a frame.
+    /// `v s 1` / `v s 0` switch sound on or off, `v s r …` is the phone's report on it.
     private func handleScreenCommand(_ line: String, session: Session) {
         let parts = line.split(separator: " ")
         guard parts.count >= 2 else { return }
@@ -404,9 +424,30 @@ final class Server {
             session.needsKeyframe = true
             session.unacked.removeAll()
             syncScreen()
+            syncSound()
         case "0":
             session.wantsScreen = false
             syncScreen()
+            syncSound()
+        case "s":
+            guard parts.count >= 3 else { return }
+            switch parts[2] {
+            case "1", "0":
+                let on = parts[2] == "1"
+                if on, !session.wantsSound {
+                    // A fresh start: the last report and round trip are from before.
+                    session.audioReport = nil
+                    session.audioRTT = nil
+                    session.audioWindow = AudioPacket.Report()
+                }
+                session.wantsSound = on
+                syncSound()
+            case "r":
+                guard let report = AudioPacket.parseReport(line) else { return }
+                noteAudioReport(report, session: session)
+            default:
+                break
+            }
         case "k":
             session.needsKeyframe = true
             ScreenStreamer.shared.requestKeyframe()
@@ -454,6 +495,21 @@ final class Server {
         logScreenStats(session, now: now)
     }
 
+    /// Sums the phone's report into the stats window and works out the round trip from its
+    /// echo: when the echoed packet went out, less how long the phone held it before reporting.
+    private func noteAudioReport(_ report: AudioPacket.Report, session: Session) {
+        session.audioWindow.received += report.received
+        session.audioWindow.late += report.late
+        session.audioWindow.lost += report.lost
+        session.audioWindow.recovered += report.recovered
+        session.audioWindow.trimmed += report.trimmed
+        session.audioWindow.underruns += report.underruns
+        session.audioReport = report
+        guard let sent = session.audioSentAt.last(where: { $0.sequence == report.echoSequence }) else { return }
+        let rtt = max(0, CFAbsoluteTimeGetCurrent() - sent.at - Double(report.echoHeldMicros) / 1_000_000)
+        session.audioRTT = session.audioRTT.map { $0 * 0.7 + rtt * 0.3 } ?? rtt
+    }
+
     private var lastStatsAt = 0.0
     /// Once in a while, how far behind the phone is: handy when latency feels off.
     private func logScreenStats(_ session: Session, now: CFAbsoluteTime) {
@@ -462,11 +518,32 @@ final class Server {
         let backlog = session.unacked.reduce(0) { $0 + $1.bytes }
         NSLog("Screen %@ (%@): ack delay %.0f ms (max %.0f), backlog %d KB in %d frames, %d resent, %d lost (%d chunks), parity 1/%d, pacer gap %.0f ms; %@",
               String(describing: session.connection.endpoint), session.udp == nil ? "tcp" : "udp", session.ackDelay * 1000, session.maxAckDelay * 1000,
-              backlog / 1024, session.unacked.count, session.resent, session.lossReports, session.lostChunks, fecGroup, pacer.report() * 1000, ScreenStreamer.shared.takeStats())
+              backlog / 1024, session.unacked.count, session.resent, session.lossReports, session.lostChunks, fecGroup, pacer.report() * 1000,
+              ScreenStreamer.shared.takeStats() + audioStats(session))
         session.maxAckDelay = 0
+        session.audioSent = 0
+        session.audioSkipped = 0
+        session.audioWindow = AudioPacket.Report()
         session.lossReports = 0
         session.lostChunks = 0
         session.resent = 0
+    }
+
+    /// The sound's part of the stats line, while this phone has it on: what went out, what
+    /// the phone made of it (summed over the window), its buffer and output delay (latest
+    /// report), and the estimated latency from capture to speaker.
+    private func audioStats(_ session: Session) -> String {
+        guard session.wantsScreen, session.wantsSound else { return "" }
+        let window = session.audioWindow
+        let latest = session.audioReport ?? AudioPacket.Report()
+        let age = ScreenStreamer.shared.audioAge * 1000
+        let rtt = (session.audioRTT ?? 0) * 1000
+        let latency = age + rtt / 2 + Double(latest.bufferMs) + Double(latest.outputMs)
+        let skipped = session.audioSkipped > 0 ? ", \(session.audioSkipped) skipped" : ""
+        return "; audio \(session.audioSent) sent (\(session.udp == nil ? "tcp" : "udp")\(skipped)), age \(Int(age.rounded())) ms, "
+            + "phone \(window.late) late, \(window.lost) lost (\(window.recovered) recovered), \(window.trimmed) trimmed, \(window.underruns) underruns, "
+            + "buffer \(latest.bufferMs)/\(latest.targetMs) ms, out \(latest.outputMs) ms, rtt \(Int(rtt.rounded())) ms, "
+            + "latency ~\(Int(latency.rounded())) ms, sound \(latest.skewMs) ms behind picture"
     }
 
     /// Once a second: summarise the stream for the menu and the phones, and act on the one
@@ -543,6 +620,50 @@ final class Server {
                                     fps: wanting.map(\.screenRequest.fps).max() ?? 0)
     }
 
+    /// Sound is captured only while some phone with the picture wants it.
+    private func syncSound() {
+        ScreenStreamer.shared.setSoundWanted(sessions.values.contains { $0.authenticated && $0.wantsScreen && $0.wantsSound })
+    }
+
+    /// Sends a sound packet to every phone that wants it. Over UDP, straight out on the
+    /// sound's own datagram stream, with copies of the packets just before it; it never goes
+    /// through the pacer, where it would wait behind a keyframe's datagrams. Over TCP, one
+    /// packet a message, skipped (not queued) while the phone is that far behind, like frames.
+    /// Sound never touches the picture's acks, backlog, pacing or parity.
+    private func broadcastAudio(_ packet: AudioPacket.Packet) {
+        let previous = recentAudio
+        recentAudio.insert(packet, at: 0)
+        if recentAudio.count > AudioRedundancy.maxCopies { recentAudio.removeLast(recentAudio.count - AudioRedundancy.maxCopies) }
+        let listeners = sessions.values.filter { $0.authenticated && $0.wantsScreen && $0.wantsSound }
+        guard !listeners.isEmpty else { return }
+        var datagram: Data?
+        var message: Data?
+        let now = CFAbsoluteTimeGetCurrent()
+        for session in listeners {
+            if let udp = session.udp, let audio = session.audio {
+                if datagram == nil {
+                    var bundled = packet
+                    bundled.payloads = AudioRedundancy.payloads(newest: packet, previous: previous)
+                    datagram = AudioPacket.datagram(bundled)
+                }
+                guard let plain = datagram, let sealed = audio.seal(plain) else { continue }
+                udp.send(content: sealed, completion: .contentProcessed { _ in })
+            } else {
+                guard session.inflight <= inflightCap else { session.audioSkipped += 1; continue }
+                if message == nil { message = AudioPacket.message(packet) }
+                guard let plain = message, let cipher = session.send, let sealed = try? cipher.seal(plain) else { continue }
+                session.inflight += sealed.count
+                let size = sealed.count
+                session.connection.send(content: sealed, completion: .contentProcessed { [weak self, weak session] _ in
+                    self?.queue.async { session?.inflight -= size }
+                })
+            }
+            session.audioSent += 1
+            session.audioSentAt.append((packet.sequence, now))
+            if session.audioSentAt.count > 350 { session.audioSentAt.removeFirst(session.audioSentAt.count - 300) }
+        }
+    }
+
     private func broadcast(_ frame: ScreenPacket.Frame) {
         let packet = ScreenPacket.encode(frame)
         var keyframeWanted = false
@@ -597,7 +718,9 @@ final class Server {
         // Never leave a key or mouse button stuck down when the phone goes away.
         if session.authenticated { Injector.shared.releaseAll() }
         session.wantsScreen = false
+        session.wantsSound = false
         syncScreen()
+        syncSound()
         report()
     }
 

@@ -9,11 +9,16 @@ import VideoToolbox
 /// turns it into HEVC (H.264 on Macs without an HEVC encoder), and each frame goes out as a
 /// ScreenPacket. Low latency over everything: real-time mode, no frame reordering, an
 /// explicit keyframe whenever the phone asks (it does so after it had to drop frames).
+///
+/// The same stream also captures the Mac's sound while a phone wants it, as Opus packets
+/// (AudioEncoder) on their own queue, so sound never waits behind a frame being encoded.
 final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     static let shared = ScreenStreamer()
 
     /// Encoded frames, on the encoder's thread. The server decides who gets them.
     var onFrame: ((ScreenPacket.Frame) -> Void)?
+    /// Opus packets of the Mac's sound, on the audio queue, while a phone wants sound.
+    var onAudio: ((AudioPacket.Packet) -> Void)?
     /// Problems worth telling the phone about ("denied", "error …").
     var onStatus: ((String) -> Void)?
     /// Asked before each captured frame is encoded. Returning true skips the frame: a phone
@@ -41,6 +46,21 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     private var lastBuffer: CVPixelBuffer?
     private var startedAt = CFAbsoluteTimeGetCurrent()
     private var running = false
+    /// Sound: whether any phone wants it, and whether the running stream captures it.
+    private var soundWanted = false
+    private var streamCapturesAudio = false
+    private var audioOutputAdded = false
+    private var streamConfig: SCStreamConfiguration?
+    /// The audio side, on its own queue. What it needs from the stream (the clock's zero as
+    /// host time, which stream is current, whether sound is on) is handed over under
+    /// `audioLock`; its `epoch` moves whenever the encoder must start over.
+    private let audioQueue = DispatchQueue(label: "couchpad.audio", qos: .userInteractive)
+    private let audioEncoder = AudioEncoder()
+    private let audioLock = NSLock()
+    private var audioShared = (startedAtHost: CACurrentMediaTime(), stream: ObjectIdentifier?.none, on: false, epoch: 0)
+    private var encoderEpoch = -1
+    private var audioAgeValue = 0.0
+    private var audioPacketsValue = 0
     /// What the phones last asked for, while any of them wants the picture. The stream dies
     /// with the display (sleep, lock): as long as this is set it is started again, every
     /// couple of seconds and the moment the screens wake, so the picture comes back on its
@@ -55,6 +75,10 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     /// Running totals, for the once-a-second health check (the stats line resets `skipped`).
     private(set) var encodedTotal = 0
     private(set) var skippedTotal = 0
+    /// Sound, for the stats line: how old a packet's first sample is when the packet leaves
+    /// the encoder (smoothed; includes waiting for the packet to fill), and packets so far.
+    var audioAge: Double { audioLock.lock(); defer { audioLock.unlock() }; return audioAgeValue }
+    var audioPacketsTotal: Int { audioLock.lock(); defer { audioLock.unlock() }; return audioPacketsValue }
     private var encodeStarts: [Int64: CFAbsoluteTime] = [:]
     /// Bitrate adaptation: the configured rate for the current size, and the share of it in
     /// use. Every lost frame the phone reports cuts the share; quiet stretches restore it.
@@ -78,6 +102,16 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
 
     override init() {
         super.init()
+        if audioEncoder == nil { NSLog("Sound: no Opus encoder; the picture goes without sound") }
+        audioEncoder?.onPacket = { [weak self] packet, firstSampleAt in
+            guard let self else { return }
+            let age = CACurrentMediaTime() - firstSampleAt
+            self.audioLock.lock()
+            self.audioAgeValue = self.audioPacketsValue == 0 ? age : self.audioAgeValue * 0.9 + age * 0.1
+            self.audioPacketsValue += 1
+            self.audioLock.unlock()
+            self.onAudio?(packet)
+        }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: nil) { [weak self] _ in
             self?.queue.async { self?.restartIfWanted() }
         }
@@ -106,6 +140,16 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         queue.async {
             self.wanted = (maxWidth, maxHeight, fps)
             self.startOnQueue(maxWidth: maxWidth, maxHeight: maxHeight, fps: fps)
+        }
+    }
+
+    /// Whether any phone with the picture also wants sound. Applied to a running stream in
+    /// place (the picture carries on, no keyframe); a stream starting later picks it up.
+    func setSoundWanted(_ wanted: Bool) {
+        queue.async {
+            guard self.soundWanted != wanted else { return }
+            self.soundWanted = wanted
+            self.applySound()
         }
     }
 
@@ -171,12 +215,20 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         let scale = min(1, min(Double(maxWidth) / Double(pixelsWide), Double(maxHeight) / Double(pixelsHigh)))
         // Even dimensions keep every encoder happy.
         let size = CGSize(width: Double(Int(Double(pixelsWide) * scale) / 2 * 2), height: Double(Int(Double(pixelsHigh) * scale) / 2 * 2))
-        if running, size == frameSize { forceKeyframe = true; return }
+        if running, size == frameSize { forceKeyframe = true; applySound(); return }
         stopOnQueue()
         frameSize = size
         running = true
         forceKeyframe = true
         startedAt = CFAbsoluteTimeGetCurrent()
+        // The same moment on the host clock, which ScreenCaptureKit stamps sound with: a
+        // packet's presentation time is then on the picture's clock.
+        let startedAtHost = CACurrentMediaTime()
+        audioLock.lock()
+        audioShared.startedAtHost = startedAtHost
+        audioShared.stream = nil
+        audioShared.epoch += 1
+        audioLock.unlock()
 
         SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { [weak self] content, error in
             guard let self else { return }
@@ -193,6 +245,8 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
                 config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
                 config.showsCursor = true
                 config.queueDepth = 3
+                let capturesAudio = self.soundWanted && self.audioEncoder != nil
+                Self.configureAudio(config, on: capturesAudio)
                 let stream = SCStream(filter: SCContentFilter(display: display, excludingWindows: []), configuration: config, delegate: self)
                 do {
                     try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: self.queue)
@@ -201,7 +255,22 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
                     self.fail(error.localizedDescription)
                     return
                 }
+                // The sound output goes on once, whether sound is on or not, so switching it on
+                // later is a configuration change only. Should ScreenCaptureKit refuse an audio
+                // output on a stream that captures none, it is added when sound is switched on.
+                self.audioOutputAdded = false
+                if self.audioEncoder != nil {
+                    do {
+                        try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: self.audioQueue)
+                        self.audioOutputAdded = true
+                    } catch {
+                        NSLog("Sound: no audio output yet (%@)", error.localizedDescription)
+                    }
+                }
                 self.stream = stream
+                self.streamConfig = config
+                self.streamCapturesAudio = capturesAudio
+                self.publishAudio(stream: stream, on: capturesAudio && self.audioOutputAdded)
                 stream.startCapture { [weak self] error in
                     guard let error else { return }
                     self?.queue.async { self?.fail(error.localizedDescription) }
@@ -217,10 +286,83 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
             stream.stopCapture { _ in }
             self.stream = nil
         }
+        streamConfig = nil
+        streamCapturesAudio = false
+        audioLock.lock()
+        audioShared.stream = nil
+        audioShared.on = false
+        audioShared.epoch += 1
+        audioLock.unlock()
         if let encoder {
             VTCompressionSessionInvalidate(encoder)
             self.encoder = nil
         }
+    }
+
+    // MARK: Sound
+
+    private static func configureAudio(_ config: SCStreamConfiguration, on: Bool) {
+        config.capturesAudio = on
+        config.sampleRate = AudioPacket.sampleRate
+        config.channelCount = 2
+        // Couchpad makes no sound of its own, but should it ever, the phone must not echo it.
+        config.excludesCurrentProcessAudio = true
+    }
+
+    /// Tells the audio queue which stream's sound to take, and starts the encoder over.
+    private func publishAudio(stream: SCStream?, on: Bool) {
+        audioLock.lock()
+        audioShared.stream = stream.map(ObjectIdentifier.init)
+        audioShared.on = on
+        audioShared.epoch += 1
+        audioLock.unlock()
+    }
+
+    /// Brings the running stream's sound in line with what the phones want, in place:
+    /// `updateConfiguration` keeps the picture running and needs no keyframe. If ScreenCaptureKit
+    /// won't change it in place, the stream is started over with the new setting.
+    private func applySound() {
+        let on = soundWanted && audioEncoder != nil
+        guard running, let stream, let streamConfig, streamCapturesAudio != on else { return }
+        if on, !audioOutputAdded {
+            do {
+                try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: audioQueue)
+                audioOutputAdded = true
+            } catch {
+                NSLog("Sound: can't add the audio output (%@); the picture goes without sound", error.localizedDescription)
+                return
+            }
+        }
+        streamCapturesAudio = on
+        Self.configureAudio(streamConfig, on: on)
+        // Stop taking sound at once when it goes off; when it comes on, the first buffers
+        // start a fresh timeline (the epoch moves either way).
+        publishAudio(stream: stream, on: on)
+        stream.updateConfiguration(streamConfig) { [weak self] error in
+            guard let error else { return }
+            guard let self else { return }
+            self.queue.async {
+                guard self.stream === stream else { return }
+                NSLog("Sound: switching %@ in place failed (%@); restarting the stream", on ? "on" : "off", error.localizedDescription)
+                self.stopOnQueue()
+                self.restartIfWanted()
+            }
+        }
+    }
+
+    /// Sound buffers, on the audio queue: only from the current stream, and only while sound
+    /// is on (buffers may still trickle in just after it was switched off).
+    private func handleAudio(_ sample: CMSampleBuffer, from stream: SCStream) {
+        guard let audioEncoder else { return }
+        audioLock.lock()
+        let shared = audioShared
+        audioLock.unlock()
+        guard shared.on, shared.stream == ObjectIdentifier(stream) else { return }
+        if encoderEpoch != shared.epoch {
+            encoderEpoch = shared.epoch
+            audioEncoder.reset()
+        }
+        audioEncoder.append(sample, startedAtHost: shared.startedAtHost)
     }
 
     // MARK: Encoder
@@ -264,6 +406,7 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        if type == .audio { handleAudio(sampleBuffer, from: stream); return }
         guard type == .screen, running, let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         // ScreenCaptureKit also delivers "idle" samples with no new content; skip those.
         if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],

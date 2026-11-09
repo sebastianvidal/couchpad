@@ -192,6 +192,10 @@ struct ContentView: View {
         }
         .onChange(of: client.phase) { _, _ in syncScreen() }
         .onChange(of: settings.showScreen) { _, _ in syncScreen() }
+        .onChange(of: settings.screenSound) { _, on in
+            // Sound only ever plays with the picture; without it, the next `v 1` brings it along.
+            if client.isConnected, screenOn, trackpadPixels.width > 0 { client.setSound(on) }
+        }
         .onChange(of: trackpadPixels) { _, _ in syncScreen() }
         .onChange(of: settings.screenQuality) { _, _ in syncScreen() }
         .onChange(of: screenZoom) { _, _ in
@@ -241,17 +245,24 @@ struct ContentView: View {
 
     /// Tells the host whether we want its screen and at what size. Called whenever the
     /// connection, the setting or the trackpad's size changes; the host restarts the stream
-    /// only when the size actually changed.
+    /// only when the size actually changed. The sound goes with the picture: every `v 1` is
+    /// followed by the sound setting, and `v 0` (or no connection) stops it too.
     private func syncScreen() {
-        guard client.isConnected else { screen.reset(); return }
+        guard client.isConnected else {
+            screen.reset()
+            client.setSound(false)
+            return
+        }
         if screenOn, trackpadPixels.width > 0 {
             let share = [0.5, 2.0 / 3.0, 1.0][max(0, min(2, settings.screenQuality))]
             // 60 fps: a change waits half as long for the next capture, and the phone's
             // display shows it on the next refresh. Bandwidth roughly doubles; still a few Mbps.
             let pixels = share * Double(screenZoom)
             client.send("v 1 \(Int(trackpadPixels.width * pixels)) \(Int(trackpadPixels.height * pixels)) 60")
+            client.setSound(settings.screenSound)
         } else {
             client.send("v 0")
+            client.setSound(false)
             screen.reset()
         }
     }
@@ -490,6 +501,16 @@ struct ContentView: View {
                         if health.phones > 1 {
                             Label("\(health.phones) phones connected", systemImage: "exclamationmark.triangle")
                         }
+                    }
+                }
+                // In the menu rather than the bar: the bar has no room, and sound is set once
+                // and left, unlike the picture.
+                if picture, screenAvailable, client.isConnected {
+                    Button {
+                        settings.screenSound.toggle()
+                    } label: {
+                        Label(settings.screenSound ? "Mute the Mac's sound" : "Play the Mac's sound",
+                              systemImage: settings.screenSound ? "speaker.slash" : "speaker.wave.2")
                     }
                 }
                 ForEach(client.services) { service in
@@ -784,6 +805,11 @@ struct ContentView: View {
                     Toggle("Show the Mac's screen on the trackpad", isOn: $settings.showScreen)
                     Text("The trackpad works as usual on top of the picture. Needs Screen Recording access for Couchpad on the Mac; the Mac asks the first time. Mac only for now.")
                         .font(.footnote).foregroundStyle(.secondary)
+                    if screenAvailable {
+                        Toggle("Play the Mac's sound", isOn: $settings.screenSound)
+                        Text("Plays on the iPhone along with the picture, in silent mode too. Music or anything else playing on the iPhone keeps playing. The dot's menu in the bar turns it off and on.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
                     Picker("Picture", selection: $settings.screenQuality) {
                         Text("Smooth").tag(0)
                         Text("Balanced").tag(1)

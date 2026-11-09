@@ -153,6 +153,46 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   stats line's `pacer gap` should read 1 ms, 33 ms means the spin is not engaging. Check
   `/usr/bin/log show --predicate 'process == "gamepolicyd"'` for "Game mode enabled" when a
   stream breaks on a game's fullscreen switch. The link itself was fine (ping stayed flat).
+- Sound (wire layout: `AudioPacket` in `Shared/SecureChannel.swift`):
+  - **Mac:** the same SCStream captures audio; `capturesAudio` is switched in place with
+    `updateConfiguration`. `AudioEncoder.swift` turns it into Opus through AVAudioConverter:
+    48 kHz stereo, 10 ms packets, 128 kbps.
+  - **UDP:** sound is a stream of its own. It has its own HKDF key and id, its own replay
+    window and plaintext type 0x06. It goes out with `udp.send` straight from the server
+    queue, never through the Pacer. Each datagram carries the newest packet plus up to 2
+    earlier ones.
+  - **TCP:** fallback message type 0x02.
+  - **Who gets it:** only sessions with the picture on and `v s 1`.
+  - **Phone:** `iOS/Couchpad/AudioPlayer.swift`, an AVAudioSourceNode pulling from a jitter
+    buffer that decodes in the render callback. Session `.playback` + `.mixWithOthers`.
+    Setting `screenSound`.
+  - **Logs:** host-side failures are logged with a `Sound:` prefix.
+- The stats line's `; audio …` part: sent, host age (capture of the first sample → send), the
+  phone's late/lost/recovered/trimmed/underruns, buffer depth/target, output delay, rtt, the
+  latency estimate and `sound N ms behind picture`. It is only written on acks, so sound
+  playing over a still screen logs nothing.
+- Measured on the user's Duo, November 2026:
+  - age ~33 ms, because ScreenCaptureKit hands over sound in chunks;
+  - the same chunking spreads arrivals over 0–35 ms on the phone, which puts the target near
+    50 ms;
+  - rtt ~11 ms;
+  - out 17 ms;
+  - sound ~69 ms behind the picture, ~90 ms from capture to speaker;
+  - one underrun every 5–10 s: packets later than p95 + 5 ms, mostly Wi-Fi spikes;
+  - `margin` in `AudioJitterBuffer.Tuning` trades those underruns against latency.
+  - Pacer gap read 6–7 ms instead of 1 ms while Game Mode was on, with sound on; never
+    compared with sound off.
+- The jitter target includes one render callback's length: a callback decodes ahead, so its
+  packets must be in hand when it starts. iOS sometimes gives 1024-frame (21 ms) callbacks
+  instead of the preferred 5 ms, which shows as `out 34 ms`. Before this was counted, those
+  callbacks caused about 4 underruns a second.
+- To debug the phone's player on the device, write a file into the app's Documents and pull it:
+  `xcrun devicectl device copy from --device <udid> --domain-type appDataContainer
+  --domain-identifier com.seb.Couchpad --source Documents/<file> --destination ~/Library/Caches/<file>`.
+  A destination under `/private/tmp/claude-*` fails with CoreDevice error 7000.
+- A simulator with the sound on should play through the Mac's speakers, which the host then
+  captures again: an echo loop. Untested; keep `screenSound` off on simulators
+  (`defaults write com.seb.Couchpad screenSound -bool false`).
 - Windows ignores `v`/`M`; the phone hides the toggle for Windows hosts.
 
 ## Commits

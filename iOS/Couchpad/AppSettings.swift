@@ -12,6 +12,8 @@ final class AppSettings: ObservableObject {
     @Published var controllerInvertY: Bool { didSet { save("controllerInvertY", controllerInvertY) } }
     @Published var trackpadOnRight: Bool { didSet { save("trackpadOnRight", trackpadOnRight) } }
     @Published var showScreen: Bool { didSet { save("showScreen", showScreen) } }
+    /// With the picture on: the Mac's sound plays on the phone too.
+    @Published var screenSound: Bool { didSet { save("screenSound", screenSound) } }
     /// With the picture on: touching it puts the pointer under the finger instead of the
     /// trackpad's usual relative moves.
     @Published var tapToPoint: Bool { didSet { save("tapToPoint", tapToPoint) } }
@@ -40,6 +42,7 @@ final class AppSettings: ObservableObject {
         controllerInvertY = d.object(forKey: "controllerInvertY") as? Bool ?? false
         trackpadOnRight = d.object(forKey: "trackpadOnRight") as? Bool ?? false
         showScreen = d.object(forKey: "showScreen") as? Bool ?? false
+        screenSound = d.object(forKey: "screenSound") as? Bool ?? true
         tapToPoint = d.object(forKey: "tapToPoint") as? Bool ?? false
         screenQuality = d.object(forKey: "screenQuality") as? Int ?? 1
         showController = d.object(forKey: "showController") as? Bool ?? false

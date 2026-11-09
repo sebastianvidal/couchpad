@@ -33,6 +33,12 @@ between, on your Wi-Fi or through your VPN.
   trackpad and keys on the flat one. Needs Screen Recording access for Couchpad on the Mac (it
   asks the first time). Fine for desktop use on a decent Wi-Fi; on a lossy mesh link it still
   hiccups more than a game wants. Mac only so far.
+- **Coming next:** the Mac's sound with the picture (needs a Mac host newer than 1.5 and the
+  next iPhone build). It plays on the phone about 90 ms after the Mac makes it, some 70 ms
+  behind the picture. On a mesh Wi-Fi it has a 10–30 ms gap every few seconds when the network
+  hiccups; nothing else is lost. It plays in silent mode and mixes
+  with whatever else the phone plays. It is on whenever the picture is; Settings → Screen or
+  the dot's menu in the bar turns it off. The Mac keeps playing its own sound as well.
 - **Also:** confirmed working **over cellular through Tailscale**, screen included, with
   no code changes: the phone just needs a route to the Mac. Setup below.
 
@@ -270,6 +276,8 @@ v 1 w h fps  start streaming the screen, scaled to fit w×h pixels   ·   v 0 st
 v a pts      the phone got the frame with that timestamp (the host paces capture by these)
 v l n c      the phone gave up on n frames over UDP, c of their chunks never arrived
 v t          the phone stopped getting UDP datagrams: send frames over TCP again
+v s 1|0      send the Mac's sound with the picture, or stop (off until the phone asks)
+v s r …      the phone's sound report, once a second: received, late, lost, buffer depth…
 ```
 
 The host releases every held key and button when a phone disconnects.
@@ -303,6 +311,25 @@ a few times the bitrate rather than firing a frame as one burst, which Wi-Fi ten
 whole. Where UDP is blocked, nothing changes: frames simply stay on TCP. The exact layout is
 documented at the bottom of `Shared/SecureChannel.swift`. Windows ignores all of this for
 now.
+
+**Sound.** While a phone has the picture and asks for sound (`v s 1`), the host captures the
+Mac's audio along with the screen (ScreenCaptureKit, Couchpad's own sound left out). It
+encodes the audio as Opus, 48 kHz stereo at 128 kbps, in 10 ms packets, and sends each packet
+the moment it is made.
+- **Over UDP**, sound is a stream of its own. It has its own key and stream id
+  (`HKDF(sessionKey, "couchpad v2 audio")` and `"couchpad v2 audio id"`), its own sequence
+  numbers and its own replay window. Its datagrams go straight out instead of waiting behind
+  a keyframe's paced ones. Each datagram also carries the two packets before it, so a lost
+  datagram costs nothing as long as the next one arrives.
+- **Over TCP**, each packet is a binary message whose second byte is 0x02 (picture frames are
+  0x01).
+
+Sound is never re-sent. The phone plays it from a small buffer that grows and shrinks with
+how unevenly packets arrive. It covers a lost packet with Opus' own concealment and drops a
+packet that comes too late. It holds the sound back if the sound would play ahead of the
+picture. Once a second the phone reports what it got (`v s r`); the host adds that, with its
+estimate of the latency, to its stats line. The wire layout is next to the picture's in
+`SecureChannel.swift` (`AudioPacket`).
 
 ## Appendix C: Releasing
 

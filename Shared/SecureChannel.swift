@@ -355,7 +355,170 @@ enum VideoDatagram {
     }
 }
 
-/// Seals and opens video datagrams for one session. Not thread-safe: use from one queue.
+// MARK: - Sound
+
+/// The host's sound, host → phone, alongside the picture: Opus at 48 kHz, 10 ms a packet.
+/// Additive to protocol v2: nothing above changes, and a phone or host that knows nothing of
+/// it never sees it (the host only sends sound to a phone that asked with `v s 1`).
+///
+/// Over TCP, one binary message per packet: 0x00 (ScreenPacket.marker), 0x02, then the body.
+/// Over UDP, its own datagram stream, laid out exactly like the video's (stream id, sequence,
+/// AES-256-GCM, same nonce and AAD rules) but with its own key, id, counter and replay window:
+///   audioKey = HKDF-SHA256(sessionKey, info: "couchpad v2 audio", 32 bytes)
+///   audioID  = HKDF-SHA256(sessionKey, info: "couchpad v2 audio id", 8 bytes)
+/// so the stream id in the clear tells sound from picture, sound never waits in the picture's
+/// pacing queue, and its sequence numbers can't push queued video datagrams out of the phone's
+/// 64-wide replay window. Plaintext: 0x06, then the body. Old phones drop it as another
+/// stream's datagram.
+/// Body, all integers big-endian:
+///   0      codec                     1 = Opus, 48 kHz
+///   1      channels                  1 or 2
+///   2..5   sequence                  per host stream, +1 a packet, never reset while it runs
+///   6..13  presentation time         µs of the packet's first sample, on the same clock as
+///                                    the video frames' presentation time (ScreenPacket), so
+///                                    the phone can line sound up with the picture
+///   14..15 frames per packet         per channel (480 = 10 ms)
+///   16     count                     packets carried, at least 1
+///   17..   count × (2-byte length, Opus packet): packet `sequence` first, then `sequence − 1`,
+///                                    `sequence − 2`… Older copies are redundancy against loss on
+///                                    UDP: the host includes one only if it directly precedes the
+///                                    next in time, and only while the datagram stays within
+///                                    VideoDatagram.maxDatagram. Over TCP, count is 1.
+/// Nothing is ever sent again: a packet that is lost and not carried by a later one is
+/// concealed by the decoder (an empty packet), and one that arrives after its turn is dropped.
+/// A gap in presentation time with consecutive sequences is silence the host didn't send
+/// (no loss); presentation time going backwards means the stream restarted.
+/// Phone → host: `v s 1` / `v s 0` (sound on or off; only meaningful with the picture on), and
+/// once a second while playing a report line (see AudioPacket.reportLine).
+enum AudioPacket {
+    static let messageType: UInt8 = 0x02
+    static let datagramType: UInt8 = 0x06
+    static let opus: UInt8 = 1
+    static let sampleRate = 48_000
+    static let framesPerPacket = 480
+    static let bodyHeader = 17
+    static let keyInfo = Data("couchpad v2 audio".utf8)
+    static let idInfo = Data("couchpad v2 audio id".utf8)
+
+    struct Packet: Equatable {
+        var codec: UInt8 = AudioPacket.opus
+        var channels: Int = 2
+        var sequence: UInt32
+        var presentationMicros: UInt64
+        var framesPerPacket: Int = AudioPacket.framesPerPacket
+        /// Opus packets, newest first: `sequence`, then `sequence − 1`, …
+        var payloads: [Data]
+
+        var duration: Double { Double(framesPerPacket) / Double(AudioPacket.sampleRate) }
+    }
+
+    static func body(_ p: Packet) -> Data {
+        var out = Data(capacity: bodyHeader + p.payloads.reduce(0) { $0 + 2 + $1.count })
+        out.append(p.codec)
+        out.append(UInt8(clamping: p.channels))
+        VideoDatagram.appendUInt(&out, UInt64(p.sequence), bytes: 4)
+        VideoDatagram.appendUInt(&out, p.presentationMicros, bytes: 8)
+        VideoDatagram.appendUInt(&out, UInt64(clamping: p.framesPerPacket), bytes: 2)
+        out.append(UInt8(clamping: p.payloads.count))
+        for payload in p.payloads.prefix(255) {
+            VideoDatagram.appendUInt(&out, UInt64(clamping: payload.count), bytes: 2)
+            out.append(payload)
+        }
+        return out
+    }
+
+    /// The TCP form: a binary message (0x00 0x02 body).
+    static func message(_ p: Packet) -> Data { Data([ScreenPacket.marker, messageType]) + body(p) }
+
+    /// The UDP form: a plaintext for the audio datagram stream (0x06 body).
+    static func datagram(_ p: Packet) -> Data { Data([datagramType]) + body(p) }
+
+    /// Bytes the UDP plaintext of a packet with these payloads takes.
+    static func datagramSize(payloads: [Data]) -> Int { 1 + bodyHeader + payloads.reduce(0) { $0 + 2 + $1.count } }
+
+    /// Largest UDP plaintext that keeps the sealed datagram within VideoDatagram.maxDatagram.
+    static let maxDatagramPlaintext = VideoDatagram.maxDatagram - VideoDatagram.headerSize - VideoDatagram.tagSize
+
+    /// Decodes either form (a TCP message or a UDP plaintext); nil if malformed or not sound.
+    static func decode(_ data: Data) -> Packet? {
+        let b = data.startIndex
+        let offset: Int
+        if data.count >= 2, data[b] == ScreenPacket.marker, data[b + 1] == messageType {
+            offset = 2
+        } else if data.count >= 1, data[b] == datagramType {
+            offset = 1
+        } else {
+            return nil
+        }
+        guard data.count >= offset + bodyHeader else { return nil }
+        let codec = data[b + offset]
+        let channels = Int(data[b + offset + 1])
+        let sequence = UInt32(VideoDatagram.readUInt(data, offset + 2, bytes: 4))
+        let pts = VideoDatagram.readUInt(data, offset + 6, bytes: 8)
+        let frames = Int(VideoDatagram.readUInt(data, offset + 14, bytes: 2))
+        let count = Int(data[b + offset + 16])
+        guard codec == opus, channels == 1 || channels == 2, frames > 0, count > 0 else { return nil }
+        var payloads: [Data] = []
+        var i = offset + bodyHeader
+        for _ in 0..<count {
+            guard i + 2 <= data.count else { return nil }
+            let n = Int(VideoDatagram.readUInt(data, i, bytes: 2)); i += 2
+            guard i + n <= data.count else { return nil }
+            payloads.append(data.subdata(in: (b + i)..<(b + i + n))); i += n
+        }
+        return Packet(codec: codec, channels: channels, sequence: sequence, presentationMicros: pts, framesPerPacket: frames, payloads: payloads)
+    }
+
+    /// What the phone reports once a second while it plays, for the host's stats line.
+    struct Report: Equatable {
+        /// Packets that arrived since the last report (each sequence once, however it came).
+        var received = 0
+        /// Packets that arrived after their turn to play had passed, and were dropped.
+        var late = 0
+        /// Packets that never arrived in time and were concealed by the decoder.
+        var lost = 0
+        /// Packets whose own datagram was lost but whose copy in a later one arrived in time.
+        var recovered = 0
+        /// Packets skipped to shrink a buffer that had grown past its target (clock drift, or
+        /// a burst arriving after a stall).
+        var trimmed = 0
+        /// Times the buffer ran dry and playback paused to refill it.
+        var underruns = 0
+        /// Sound queued ahead of the speaker right now, and what the buffer aims for, in ms.
+        var bufferMs = 0
+        var targetMs = 0
+        /// The audio hardware's own delay (output latency plus one I/O buffer), in ms.
+        var outputMs = 0
+        /// How much later the sound plays than the picture shows, in ms (negative: earlier),
+        /// measured on the phone from both streams' presentation times; 0 while no picture
+        /// frames arrive to compare with (a still screen).
+        var skewMs = 0
+        /// The newest packet received and how long ago it arrived, in µs: with the time the
+        /// host sent that packet, the host works out the round trip.
+        var echoSequence: UInt32 = 0
+        var echoHeldMicros = 0
+    }
+
+    /// `v s r <received> <late> <lost> <recovered> <trimmed> <underruns> <buffer ms> <target ms>
+    /// <output ms> <skew ms> <echo sequence> <echo held µs>`
+    static func reportLine(_ r: Report) -> String {
+        "v s r \(r.received) \(r.late) \(r.lost) \(r.recovered) \(r.trimmed) \(r.underruns) \(r.bufferMs) \(r.targetMs) \(r.outputMs) \(r.skewMs) \(r.echoSequence) \(r.echoHeldMicros)"
+    }
+
+    /// Parses a report line; nil if it isn't one.
+    static func parseReport(_ line: String) -> Report? {
+        let parts = line.split(separator: " ")
+        guard parts.count >= 14, parts[0] == "v", parts[1] == "s", parts[2] == "r" else { return nil }
+        let n = parts[3...].map { Int($0) }
+        guard n.allSatisfy({ $0 != nil }) else { return nil }
+        let v = n.map { $0! }
+        return Report(received: v[0], late: v[1], lost: v[2], recovered: v[3], trimmed: v[4], underruns: v[5], bufferMs: v[6],
+                      targetMs: v[7], outputMs: v[8], skewMs: v[9], echoSequence: UInt32(clamping: v[10]), echoHeldMicros: v[11])
+    }
+}
+
+/// Seals and opens datagrams of one stream (the picture's by default, or the sound's with
+/// AudioPacket.keyInfo / idInfo) for one session. Not thread-safe: use from one queue.
 final class DatagramCipher {
     let streamID: Data
     private let key: SymmetricKey
@@ -367,9 +530,9 @@ final class DatagramCipher {
     private var seen: UInt64 = 0
     private var opened = false
 
-    init(sessionKey: SymmetricKey, isHost: Bool) {
-        key = VideoDatagram.key(from: sessionKey)
-        streamID = VideoDatagram.streamID(from: sessionKey)
+    init(sessionKey: SymmetricKey, isHost: Bool, keyInfo: Data = VideoDatagram.videoInfo, idInfo: Data = VideoDatagram.idInfo) {
+        key = HKDF<SHA256>.deriveKey(inputKeyMaterial: sessionKey, info: keyInfo, outputByteCount: 32)
+        streamID = HKDF<SHA256>.deriveKey(inputKeyMaterial: sessionKey, info: idInfo, outputByteCount: 8).withUnsafeBytes { Data($0) }
         sendDirection = isHost ? VideoDatagram.hostDirection : VideoDatagram.phoneDirection
         recvDirection = isHost ? VideoDatagram.phoneDirection : VideoDatagram.hostDirection
     }

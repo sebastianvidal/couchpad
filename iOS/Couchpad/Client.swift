@@ -45,6 +45,9 @@ final class Client: ObservableObject {
     var onScreenHealth: ((ScreenHealth) -> Void)?
     /// A frame was lost on the UDP path: the decoder must wait for the next keyframe.
     var onScreenLoss: (() -> Void)?
+    /// The Mac's sound, with the picture (see AudioPacket). Packets go straight to it from
+    /// whichever queue they arrive on.
+    let audio = AudioPlayer()
 
     /// "Mac" or "PC", for UI text about the paired computer.
     var hostNoun: String { hostPlatform == .windows ? "PC" : "Mac" }
@@ -62,6 +65,8 @@ final class Client: ObservableObject {
     /// Frames over UDP once paired (see VideoLink); nil while the host's address is unknown.
     private var videoLink: VideoLink?
     private var screenWanted = false
+    /// Sends the player's report once a second while it plays.
+    private var audioReports: Task<Void, Never>?
     private var sentCredential: Credential?
     private var pendingCode: String?
     private var retryTask: Task<Void, Never>?
@@ -95,6 +100,7 @@ final class Client: ObservableObject {
         }
         videoLink?.cancel()
         videoLink = nil
+        stopSound()
         phase = .disconnected
         status = "Paused"
     }
@@ -163,6 +169,7 @@ final class Client: ObservableObject {
         connection?.cancel()
         videoLink?.cancel()
         videoLink = nil
+        audio.reset()   // whatever is queued belongs to the old session
         receiving = false
         buffer = FrameBuffer()
         privateKey = P256.KeyAgreement.PrivateKey()
@@ -373,7 +380,12 @@ final class Client: ObservableObject {
                         while let body = try self.buffer.next() {
                             let plain = try cipher.openData(body)
                             if plain.first == ScreenPacket.marker {
-                                if self.isConnected { self.onScreenPacket?(plain) }
+                                guard self.isConnected else { continue }
+                                if plain.count >= 2, plain[plain.startIndex + 1] == AudioPacket.messageType {
+                                    if let packet = AudioPacket.decode(plain) { self.audio.receive(packet) }
+                                } else {
+                                    self.onScreenPacket?(plain)
+                                }
                             } else {
                                 self.handle(String(decoding: plain, as: UTF8.self))
                             }
@@ -407,6 +419,33 @@ final class Client: ObservableObject {
         if let videoLink, videoLink.isLive { videoLink.ack(pts) } else { send("v a \(pts)") }
     }
 
+    /// Sound with the picture: tells the host (it only sends sound to a phone that has the
+    /// picture on and asked for it) and starts or stops the player. Sent right after every
+    /// `v 1 …` and whenever the setting changes.
+    func setSound(_ on: Bool) {
+        send(on ? "v s 1" : "v s 0")
+        guard on, isConnected else {
+            stopSound()
+            return
+        }
+        audio.start()
+        guard audioReports == nil else { return }
+        // The host's stats line: what arrived, what was lost, how deep the buffer is.
+        audioReports = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, !Task.isCancelled else { return }
+                if let report = self.audio.takeReport() { self.send(AudioPacket.reportLine(report)) }
+            }
+        }
+    }
+
+    private func stopSound() {
+        audio.stop()
+        audioReports?.cancel()
+        audioReports = nil
+    }
+
     /// Opens the UDP sideband to the host's resolved address: the host starts sending frames
     /// as datagrams once a hello reaches it. Without one (UDP blocked, address unknown) the
     /// picture simply stays on TCP.
@@ -435,6 +474,9 @@ final class Client: ObservableObject {
                 self.send("v t")
             }
         }
+        // Straight from the link's queue: a hop through the main actor would add its layout
+        // work's jitter to every packet.
+        link.onAudio = { [audio] packet in audio.receive(packet) }
         link.start()
         if screenWanted { link.setWanted(true) }
         videoLink = link

@@ -46,6 +46,8 @@ final class ScreenReceiver: ObservableObject {
         // Tell the host this frame arrived; it paces the capture by what we have acknowledged,
         // so lag never builds up in the network. Acked even if we can't show it.
         client?.ackFrame(frame.presentationMicros)
+        // The sound waits for the picture when the picture is the slower of the two.
+        client?.audio.noteVideoFrame(presentationMicros: frame.presentationMicros)
         if frame.keyframe, !frame.parameterSets.isEmpty {
             if format == nil || hevc != frame.hevc || Int(videoSize.width) != frame.width || Int(videoSize.height) != frame.height {
                 layer.flush()

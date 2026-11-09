@@ -14,9 +14,13 @@ final class VideoLink {
     var onLoss: ((Int, Int) -> Void)?
     /// Datagrams were flowing and stopped: the host should go back to TCP.
     var onStall: (() -> Void)?
+    /// A sound packet (AudioPacket), on the link's queue.
+    var onAudio: ((AudioPacket.Packet) -> Void)?
 
     private let connection: NWConnection
     private let cipher: DatagramCipher
+    /// The sound's datagrams: same session, their own key, stream id and replay window.
+    private let audioCipher: DatagramCipher
     private let assembler = FrameAssembler()
     private let queue = DispatchQueue(label: "couchpad.video")
     private var timer: DispatchSourceTimer?
@@ -29,6 +33,7 @@ final class VideoLink {
 
     init(host: NWEndpoint.Host, port: NWEndpoint.Port, sessionKey: SymmetricKey) {
         cipher = DatagramCipher(sessionKey: sessionKey, isHost: false)
+        audioCipher = DatagramCipher(sessionKey: sessionKey, isHost: false, keyInfo: AudioPacket.keyInfo, idInfo: AudioPacket.idInfo)
         let params = NWParameters.udp
         params.serviceClass = .interactiveVoice
         connection = NWConnection(host: host, port: port, using: params)
@@ -98,6 +103,11 @@ final class VideoLink {
                 self.isLive = true
                 self.stalled = false
                 if first == VideoDatagram.MessageType.chunk.rawValue { self.deliver(self.assembler.add(plain)) }
+            } else if let data, data.prefix(8) == self.audioCipher.streamID, let plain = self.audioCipher.open(data),
+                      plain.first == AudioPacket.datagramType, let packet = AudioPacket.decode(plain) {
+                // Sound says nothing about the picture's path: it never counts as a sign of life
+                // for the fallback to TCP, which is the picture's alone.
+                self.onAudio?(packet)
             }
             if error == nil { self.receive() }
         }
