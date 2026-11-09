@@ -324,8 +324,10 @@ struct ControllerView: View {
 }
 
 /// A stick drawn as a ring with a knob that follows the thumb. The direction (8-way, so
-/// diagonals press two keys) is read from the knob's angle once it is off centre, and the
-/// 45° slice of the ring it falls in is lit under the knob.
+/// diagonals press two keys) is read from the knob's angle once it is off centre, and a
+/// quarter of the ring centred on it is lit under the knob. Lines on the diagonals split the
+/// ring into the four directions' quarters: a straight direction fills one, a diagonal
+/// straddles a line.
 ///
 /// A touch works two ways. Put down and held still, it is a tap: wherever it lands, bar the
 /// very centre, that direction is pressed, like a d-pad. Once the thumb moves it is a stick,
@@ -355,6 +357,9 @@ private struct VirtualStick: View {
                         .fill(Color.accentColor.opacity(0.28))
                         .frame(width: side * 0.86 - ring * 2, height: side * 0.86 - ring * 2)
                 }
+                Diagonals(inner: knobSize / 2)
+                    .stroke(Color.primary.opacity(0.12), lineWidth: ring)
+                    .frame(width: side * 0.86 - ring * 2, height: side * 0.86 - ring * 2)
                 Circle()
                     .fill(active ? Color.accentColor : Color.primary.opacity(0.25))
                     .frame(width: knobSize, height: knobSize)
@@ -439,9 +444,11 @@ private struct VirtualStick: View {
         if !controls.isEmpty { haptic.selectionChanged() }
     }
 
-    /// The 45° pie slice of a sector, from the centre to the edge of the frame. Sectors count
-    /// counter-clockwise from right with y up; the path's y runs down, so the slice for sector
-    /// n spans -45n ± 22.5° there. A relative arc with a positive delta needs no clockwise flag.
+    /// The 90° pie slice centred on a sector, from the centre to the edge of the frame: twice
+    /// the sector's own 45°, so a straight direction lights the quarter between two diagonal
+    /// lines. Sectors count counter-clockwise from right with y up; the path's y runs down, so
+    /// the slice for sector n spans -45n ± 45° there. A relative arc with a positive delta
+    /// needs no clockwise flag.
     private struct SectorWedge: Shape {
         let sector: Int
 
@@ -450,8 +457,27 @@ private struct VirtualStick: View {
             var path = Path()
             path.move(to: center)
             path.addRelativeArc(center: center, radius: min(rect.width, rect.height) / 2,
-                                startAngle: .degrees(-45 * Double(sector) - 22.5), delta: .degrees(45))
+                                startAngle: .degrees(-45 * Double(sector) - 45), delta: .degrees(90))
             path.closeSubpath()
+            return path
+        }
+    }
+
+    /// Lines at 45°, 135°, 225° and 315°, where one straight direction's quarter ends and the
+    /// next begins: from `inner` (the resting knob's edge, so none show through it) out to
+    /// the edge of the frame.
+    private struct Diagonals: Shape {
+        let inner: CGFloat
+
+        func path(in rect: CGRect) -> Path {
+            let center = CGPoint(x: rect.midX, y: rect.midY)
+            let outer = min(rect.width, rect.height) / 2
+            let unit = CGFloat(0.5).squareRoot()
+            var path = Path()
+            for (x, y) in [(unit, unit), (-unit, unit), (-unit, -unit), (unit, -unit)] {
+                path.move(to: CGPoint(x: center.x + x * inner, y: center.y + y * inner))
+                path.addLine(to: CGPoint(x: center.x + x * outer, y: center.y + y * outer))
+            }
             return path
         }
     }
