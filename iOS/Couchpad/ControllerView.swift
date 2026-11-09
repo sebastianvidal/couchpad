@@ -484,6 +484,9 @@ private struct PadKey: View {
                 .labelShadow(overlayOpacity != nil && !pressed)
                 .opacity(pressed ? 1 : KeyButton.labelOpacity(overlayOpacity: overlayOpacity))
                 .padding(.horizontal, 2)
+                // A face button's big letter over its small binding, centred as boxes, looks
+                // high: the weight is in the letter. The pair sits 5% of the button lower.
+                .offset(y: tag == nil && text != nil && geo.size.height >= 34 && action != .none ? geo.size.height * 0.05 : 0)
             }
         }
         .opacity(action == .none ? 0.45 : 1)
