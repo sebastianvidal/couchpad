@@ -19,8 +19,9 @@ struct Key: Identifiable {
 /// Above it, a slim "F1–F12" bar (with Release while a modifier is held) swaps the row
 /// for two rows of function keys; the iOS keyboard is summoned from the bar at the bottom.
 /// Arrows and space come from the on-screen controller's bindings or the iOS keyboard.
-/// On by default, toggled by the bar's ⌘ button: docked under the trackpad or picture, or at
-/// the top of the pad (half open while typing, floating over the picture instead). Plain keys send key-down on touch
+/// On by default, toggled by the bar's ⌘ button: docked under the trackpad or picture, at
+/// the top of the pad, or over the picture with the overlaid pad (half open while typing,
+/// floating over the picture on a card). Plain keys send key-down on touch
 /// and key-up on release, so holding works in games. Modifiers toggle and stay held.
 struct KeyStripView: View {
     @ObservedObject var client: Client
@@ -28,6 +29,10 @@ struct KeyStripView: View {
     var rowHeight: CGFloat = 42
     /// The pad owns the F toggle, so it can make room for the second F row.
     var showFExternal: Binding<Bool>? = nil
+    /// Over a live picture (the overlaid pad): flat fills at half strength with a soft label
+    /// shadow, like the pad's own keys (`PadKey.translucent`). Pressed, held, F-open and
+    /// Release keep their colours.
+    var translucent = false
     @State private var showFState = false
     private var showF: Bool { showFExternal?.wrappedValue ?? showFState }
     private func setShowF(_ value: Bool) {
@@ -99,9 +104,10 @@ struct KeyStripView: View {
                     Image(systemName: showF ? "chevron.down" : "chevron.up").font(.caption2)
                     Text("F1–F12").font(.caption)
                 }
+                .labelShadow(translucent)
                 .frame(maxWidth: .infinity)
                 .frame(height: barHeight)
-                .background(showF ? Color.accentColor.opacity(0.35) : Color(.secondarySystemBackground),
+                .background(showF ? Color.accentColor.opacity(0.35) : KeyButton.fill(translucent: translucent),
                             in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 .foregroundStyle(Color.primary)
             }
@@ -112,6 +118,7 @@ struct KeyStripView: View {
                 } label: {
                     Text("Release")
                         .font(.caption)
+                        .labelShadow(translucent)
                         .padding(.horizontal, 10)
                         .frame(height: barHeight)
                         .background(Color.orange.opacity(0.35), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
@@ -136,7 +143,8 @@ struct KeyStripView: View {
         if windows && key.windowsLabel == "" {
             Color.clear
         } else {
-            KeyButton(key: key, pressed: pressedKeys.contains(key.code), isHeld: state.heldModifiers.contains(key.code), windows: windows)
+            KeyButton(key: key, pressed: pressedKeys.contains(key.code), isHeld: state.heldModifiers.contains(key.code), windows: windows,
+                      translucent: translucent)
                 .background(GeometryReader { geo in
                     Color.clear.preference(key: KeyFramesKey.self, value: [key.code: geo.frame(in: .named("keys"))])
                 })
@@ -274,11 +282,18 @@ struct KeyButton: View {
     let pressed: Bool
     let isHeld: Bool
     var windows = false
+    var translucent = false
+
+    /// A key's resting fill. Translucent (over a live picture), the background's colour at half
+    /// strength: it pulls whatever is under the key towards the colour the label contrasts with.
+    static func fill(translucent: Bool) -> Color {
+        translucent ? Color(.systemBackground).opacity(0.5) : Color(.secondarySystemBackground)
+    }
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(pressed || isHeld ? Color.accentColor : Color(.secondarySystemBackground))
+                .fill(pressed || isHeld ? Color.accentColor : KeyButton.fill(translucent: translucent))
             Group {
                 if windows, let text = key.windowsLabel, !text.isEmpty {
                     Text(text)
@@ -291,6 +306,15 @@ struct KeyButton: View {
             .font(key.small || (windows && key.windowsLabel != nil) ? .caption : .body)
             .fontWeight(.medium)
             .foregroundStyle(pressed || isHeld ? Color.white : Color.primary)
+            .labelShadow(translucent && !pressed && !isHeld)
         }
+    }
+}
+
+extension View {
+    /// The soft shadow in the background's colour that keeps a translucent key's label
+    /// readable over bright and dark pictures alike (as on the overlaid pad's keys).
+    func labelShadow(_ on: Bool) -> some View {
+        shadow(color: on ? Color(.systemBackground).opacity(0.9) : .clear, radius: 2)
     }
 }

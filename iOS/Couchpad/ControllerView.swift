@@ -9,7 +9,7 @@ import UIKit
 /// F bar and key row, when shown (the bar's ⌘ button), are above the keys tall and over
 /// them in the band wide. As an overlay (sideways, `AppSettings.padOverlay`) the pad is
 /// drawn translucent over the trackpad or picture instead: stick and diamond in its bottom
-/// corners, the keys in a row between them, the key row docked under the pane by the parent.
+/// corners, the keys in a row between them with the strip (when shown) over them.
 /// Every control reports to `ControllerBridge`, so the profile that drives a physical pad
 /// drives this one. The keys share the strip's multi-touch overlay, so a finger sliding
 /// from one to the next releases the first and presses the next.
@@ -27,7 +27,6 @@ struct ControllerView: View {
     /// `wide`, and takes only the touches that land on a control (see `overlayBody`).
     var overlay = false
     /// The strip's F bar and key row (`AppSettings.showKeyRow`, the bar's ⌘ button).
-    /// Off as an overlay: the parent docks the row under the pane instead.
     var showKeys = true
     @State private var keyFrames: [Int: CGRect] = [:]
     @State private var pressedCodes = Set<Int>()
@@ -226,14 +225,21 @@ struct ControllerView: View {
     /// Over the trackpad or picture, like touch controls over a game: the stick in the
     /// bottom-leading corner, the diamond in the bottom-trailing one, both 24pt in from the
     /// pane's sides and 16pt up from its bottom, and the seven programmable keys in one row
-    /// centred between them along the same bottom line, slimmer than the band's.
+    /// centred between them along the same bottom line, slimmer than the band's. With the
+    /// key row on (⌘), the strip sits right over those keys, as wide as their seven columns
+    /// and at their row height, translucent like them; as in the band, opening F1–F12 swaps
+    /// the strip's row and the programmable keys for the two F rows, so the overlay covers
+    /// no more of the picture and nothing moves (the column is bottom-aligned and as tall
+    /// either way: bar, then two rows).
     /// Sized from the pane's width (the height only caps it, on a pane far shorter than a
-    /// phone's), so docking the key row under the pane (⌘) moves nothing: the stick a little
-    /// bigger than the band's, the face buttons and the keys in proportion to it.
+    /// phone's), and the pane keeps its height whether or not the strip is shown, so ⌘ only
+    /// adds or removes the strip: the stick a little bigger than the band's, the face
+    /// buttons and the keys in proportion to it.
     /// Only the controls take touches: no container here has a background, a content shape
-    /// or a gesture, and the touch overlay claims only the key frames, so every touch that
-    /// misses a control reaches the trackpad underneath. The dark disc behind the stick
-    /// keeps its ring visible over a bright picture.
+    /// or a gesture, the strip's F bar is a button the size of the bar, and both touch
+    /// overlays claim only their key frames, so every touch that misses a control (the
+    /// gaps between keys included) reaches the trackpad underneath. The dark disc behind
+    /// the stick keeps its ring visible over a bright picture.
     private func overlayBody(_ size: CGSize) -> some View {
         let edge: CGFloat = 24      // off the pane's sides
         let bottom: CGFloat = 16    // off its bottom
@@ -250,9 +256,17 @@ struct ControllerView: View {
                 .frame(width: stick, height: stick)
                 .background(Circle().fill(Color.black.opacity(0.2)).allowsHitTesting(false))
             Spacer(minLength: air)
-            HStack(spacing: gap) {
-                ForEach(ControllerView.topRow, id: \.0) { control, tag in
-                    key(control, tag: tag).frame(width: unit, height: keyRow)
+            VStack(spacing: gap) {
+                if showKeys {
+                    KeyStripView(client: client, state: state, rowHeight: keyRow, showFExternal: $showF, translucent: true)
+                        .frame(width: unit * 7 + gap * 6)
+                }
+                if !(showKeys && showF) {
+                    HStack(spacing: gap) {
+                        ForEach(ControllerView.topRow, id: \.0) { control, tag in
+                            key(control, tag: tag).frame(width: unit, height: keyRow)
+                        }
+                    }
                 }
             }
             Spacer(minLength: air)
