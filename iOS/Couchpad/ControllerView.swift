@@ -457,7 +457,10 @@ private struct PadKey: View {
                 } else {
                     RoundedRectangle(cornerRadius: 7, style: .continuous).fill(fill)
                 }
-                VStack(spacing: 0) {
+                // The two lines read as one block: a Text's line box carries its font's descender
+                // and line room, which opened a gap between a label and its sub-label, so the
+                // stack overlaps them by about that much.
+                VStack(spacing: tag != nil ? -2 : -3) {
                     if let tag {
                         if geo.size.height >= 34 {
                             Text(tag).font(.system(size: 9)).opacity(0.6)
