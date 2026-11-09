@@ -162,6 +162,7 @@ struct ControllerView: View {
         let faceUnit: CGFloat   // a face button's width
         let row: CGFloat        // and its height
         let edge: CGFloat       // air outside the stick and the diamond, off the band's ends
+        let keysWidth = 7 * 44 + 6 * gap   // the seven keys, none under 44pt
         if let rowHeight {
             // The band is 10% taller than three rows so the stick (the band's full height)
             // grows with it; the face buttons are 10% bigger than a row plus 5pt (the
@@ -169,16 +170,21 @@ struct ControllerView: View {
             band = (rowHeight * 3 + gap * 2) * 1.1
             row = rowHeight * 1.1 + 5
             faceUnit = row
-            edge = 10
+            edge = 24
         } else {
-            let keysWidth = 7 * 44 + 6 * gap
             band = max(0, min(size.height, max(size.width * 0.22, min(size.width * 0.3, (size.width - gap * 2 - keysWidth) / 2))))
             faceUnit = (band - gap * 2) / 3
             row = min(faceUnit * 1.2, (band - gap * 1.2) / 2.2)
             edge = 0
         }
         let diamondWidth = rowHeight == nil ? band : faceUnit * 3 + gap * 2
-        let middle = size.width - band - diamondWidth - gap * 2 - edge * 2
+        // Air between the stick and the keys and between the keys and the diamond. Given a
+        // row height, 16pt, the keys giving up the width; on a phone too narrow for that it
+        // shrinks (down to the keys' own gap) before the keys go under 44pt. Filling, the gap.
+        let inner = rowHeight == nil
+            ? gap
+            : max(gap, min(16, (size.width - band - diamondWidth - edge * 2 - keysWidth) / 2))
+        let middle = size.width - band - diamondWidth - inner * 2 - edge * 2
         let unit = (middle - gap * 6) / 7
         // With the strip: bar + gap + two key rows + gap fill the band exactly (filling, up
         // to key shape). Without it, the programmable keys stay key-shaped, centred in the band.
@@ -188,7 +194,7 @@ struct ControllerView: View {
         let keyRow = rowHeight == nil
             ? (showKeys ? min(stripRow, unit * 1.2) : min(band, unit * 1.2))
             : stripRow
-        return HStack(spacing: gap) {
+        return HStack(spacing: inner) {
             VirtualStick(controller: controller).frame(width: band, height: band)
             VStack(spacing: gap) {
                 if showKeys {
