@@ -11,9 +11,10 @@ between, on your Wi-Fi or through your VPN.
 **Status (November 2026)**
 - **iPhone:** public **TestFlight beta** — https://testflight.apple.com/join/kY67K51G — ahead
   of a free App Store release. Supports iPhone Duo, folded or unfolded, in both orientations.
-- **Mac:** **1.5 released**, signed and notarized —
-  [download](https://github.com/sebastianvidal/couchpad/releases/latest). 1.5 keeps the
-  picture smooth when a game goes fullscreen (see [What's new in Mac 1.5](#whats-new-in-mac-15));
+- **Mac:** **1.6 released**, signed and notarized —
+  [download](https://github.com/sebastianvidal/couchpad/releases/latest). 1.6 sends the Mac's
+  sound to the phone with the picture (see [What's new in Mac 1.6](#whats-new-in-mac-16));
+  1.5 keeps the picture smooth when a game goes fullscreen;
   1.4 keeps it smooth when a phone's connection drops and comes back, and brings it back
   after the display sleeps; 1.3 wakes a sleeping display on input from the phone and opens its
   menu instantly; 1.2 streams the
@@ -33,16 +34,28 @@ between, on your Wi-Fi or through your VPN.
   trackpad and keys on the flat one. Needs Screen Recording access for Couchpad on the Mac (it
   asks the first time). Fine for desktop use on a decent Wi-Fi; on a lossy mesh link it still
   hiccups more than a game wants. Mac only so far.
-- **Coming next:** the Mac's sound with the picture (needs a Mac host newer than 1.5 and the
-  next iPhone build). It plays on the phone about 90 ms after the Mac makes it, some 70 ms
-  behind the picture. On a mesh Wi-Fi it has a 10–30 ms gap every few seconds when the network
-  hiccups; nothing else is lost. It plays in silent mode and mixes
-  with whatever else the phone plays. It is on whenever the picture is; Settings → Screen or
-  the dot's menu in the bar turns it off. The Mac keeps playing its own sound as well.
+- **New:** the Mac's sound with the picture (Mac 1.6 and iPhone 1.3). It plays on the phone
+  about 90 ms after the Mac makes it, some 70 ms behind the picture. On a mesh Wi-Fi it has a
+  10–30 ms gap every few seconds when the network hiccups; nothing else is lost. It plays in
+  silent mode and mixes with whatever else the phone plays. It is on whenever the picture is;
+  Settings → Screen or the dot's menu in the bar turns it off. The Mac keeps playing its own
+  sound as well.
+- **New on iPhone 1.3:** sideways, the pad and the key row can float over the picture
+  (Settings → Pad over the picture), with their opacity set in Settings → Overlay opacity.
 - **Also:** confirmed working **over cellular through Tailscale**, screen included, with
   no code changes: the phone just needs a route to the Mac. Setup below.
 
 Site: https://sebastianvidal.github.io/couchpad/
+
+## What's new in Mac 1.6
+
+The Mac's sound plays on the phone with the picture. The Mac captures its audio along with
+the screen (with the same Screen Recording permission) and encodes it as Opus in 10 ms
+packets. It sends them encrypted, over UDP like the picture, and each datagram also carries
+the two packets before it, so a lost one usually costs nothing. The phone plays them from a
+small buffer that adapts to the Wi-Fi, holding the sound back only if it would get ahead of
+the picture. It needs iPhone 1.3; an older phone never asks for sound and works as before.
+Nothing to set up; install 1.6 over 1.5.
 
 ## What's new in Mac 1.5
 
@@ -60,7 +73,7 @@ Nothing to set up; install 1.5 over 1.4.
 1. **iPhone:** install [TestFlight](https://apps.apple.com/app/testflight/id899247664), then
    open https://testflight.apple.com/join/kY67K51G on the phone and tap Install. Allow
    **Local Network** when asked, otherwise the app can't find your computer.
-2. **Mac:** download `Couchpad-1.5.dmg` from
+2. **Mac:** download `Couchpad-1.6.dmg` from
    [Releases](https://github.com/sebastianvidal/couchpad/releases/latest), drag Couchpad to
    Applications, open it. A cursor icon appears in the menu bar. Grant **Accessibility** when
    macOS asks (System Settings → Privacy & Security → Accessibility); that permission is what

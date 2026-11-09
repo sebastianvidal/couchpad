@@ -70,6 +70,13 @@ remote,mouse,touchpad,wireless,mac,pc,windows,tv,couch,controller,gamepad,cursor
 
 (98 characters. Don't repeat the app name or words already in the subtitle; Apple indexes those separately.)
 
+## What's New (1.3)
+
+- Hear your Mac: with the picture on, the Mac's sound now plays on the phone too, in step with the picture. It plays in silent mode and mixes with music already playing on the phone. Turn it off in Settings → Screen or in the menu of the dot in the bar. Needs the Mac companion 1.6.
+- Pad over the picture: sideways, the on-screen controller and the key row can float translucent over the picture, which keeps the whole screen, like touch controls in a game. Turn it on in Settings; Overlay opacity sets how see-through they are.
+- The stick lights up the direction you're holding, a tap on the stick presses that way, and the face buttons are round.
+- More room around the stick and the buttons when sideways.
+
 ## What's New (1.2)
 
 - On-screen controller: tap the d-pad button in the bar for a stick, A B X Y and seven programmable keys under the picture or trackpad, like a hand-held console. Upright it takes the bottom half of the screen, sideways a short band under the picture, and on a half-open iPhone Duo the flat half. Same bindings and presets as a physical controller (FPS, MapleStory, Arrows); every key shows what it does.
@@ -105,9 +112,9 @@ https://sebastianvidal.github.io/couchpad/privacy.html
 
 Couchpad is a trackpad, keyboard and game-controller remote for the user's own computer on the local network, in the same category as Remote Mouse, Mobile Mouse and Unified Remote (App Store Review Guideline 4.2.7, remote desktop clients for user-owned computers on a local network).
 
-Like those apps, it needs a free companion on the computer, because macOS requires Accessibility permission on the Mac itself to inject input; that cannot be done from an iPhone alone and the companion cannot be distributed through the Mac App Store (sandbox). The companion is free, open source and linked from the app's first-run screen: https://sebastianvidal.github.io/couchpad/ (Mac 1.5 is current; a Windows companion exists too).
+Like those apps, it needs a free companion on the computer, because macOS requires Accessibility permission on the Mac itself to inject input; that cannot be done from an iPhone alone and the companion cannot be distributed through the Mac App Store (sandbox). The companion is free, open source and linked from the app's first-run screen: https://sebastianvidal.github.io/couchpad/ (Mac 1.6 is current; a Windows companion exists too).
 
-Everything the app sends is ordinary key presses, mouse movement and clicks. The on-screen controller and a connected game controller are translated to the same key and mouse events; the computer never sees a gamepad. The optional "picture" feature shows the user's own Mac screen on the phone; it needs the Screen Recording permission on that Mac, which the Mac asks for the first time.
+Everything the app sends is ordinary key presses, mouse movement and clicks. The on-screen controller and a connected game controller are translated to the same key and mouse events; the computer never sees a gamepad. The optional "picture" feature shows the user's own Mac screen on the phone, with the Mac's sound; it needs the Screen Recording permission on that Mac, which the Mac asks for the first time. The sound plays through the phone's own speaker or headphones only while the picture is on screen, and stops when the app leaves the foreground.
 
 To test:
 1. On a Mac on the same Wi‑Fi as the test iPhone, download and open the companion from the link above and grant Accessibility when asked.
@@ -130,6 +137,16 @@ Couchpad turns your iPhone into a trackpad and keyboard for your Mac or Windows 
 You'll need the free companion app on the computer, from https://sebastianvidal.github.io/couchpad/. Open it, grant Accessibility on the Mac (or allow it through the firewall on Windows), then open Couchpad on your phone: it finds the computer by itself. Pair once by scanning the QR code from the computer's menu-bar or tray icon.
 
 Everything stays on your local network. No account, no data collected.
+
+## TestFlight — What to Test (1.3)
+
+This build plays the Mac's sound with the picture and lets the controller float over the picture sideways. Sound needs Mac companion 1.6 (download at https://sebastianvidal.github.io/couchpad/).
+
+• Sound: turn the picture on and play something on the Mac (a video, a game). Does it sound clean? Does it stay in step with the picture? Tell me if you hear dropouts or crackles, and on what Wi-Fi.
+• Sound settings: turn it off and on from the dot's menu in the bar and in Settings → Screen. Flip the silent switch: the sound should keep playing. Play music on the phone first: it should keep playing alongside.
+• Sound and other apps: take a call or ask Siri something while it plays, then come back; the sound should resume. Leave the app: the sound should stop.
+• Pad over the picture: sideways, turn on Settings → Pad over the picture. The pad and key row should float over the picture, which keeps the full height. Try Overlay opacity from 0% to 100%: are the labels always readable?
+• Stick: hold a direction; the slice of the ring under the knob should light up. Tap the stick on one side: it should press that way once.
 
 ## TestFlight — What to Test (1.2)
 

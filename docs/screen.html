@@ -32,9 +32,10 @@
     <li><strong>The trackpad is still a trackpad.</strong> Swipe to move, tap to click, two fingers to scroll, everything as before, on top of the picture.</li>
     <li><strong>Or touch to point.</strong> Gear → Screen → "Touch the picture to point there": the pointer jumps under your finger, so a tap clicks what you are looking at. Good for clicking around; the swipe mode is better for games and precise work.</li>
     <li><strong>The keys stay out of the picture.</strong> A compact row sits under it: an F1–F12 bar, then esc, tab, fn and the modifiers. It is on by default; the ⌘ button in the bar hides and shows it.</li>
-    <li><strong>The on-screen controller</strong> (the d-pad button in the bar) takes the bottom half of the screen upright, or a short band under the picture sideways; the picture gives up the room, nothing covers it. <a href="controller.html">More on the controller</a>.</li>
+    <li><strong>The on-screen controller</strong> (the d-pad button in the bar) takes the bottom half of the screen upright, or a short band under the picture sideways; the picture gives up the room. Sideways it can also float translucent over the picture instead, the key row with it (gear → Pad over the picture; gear → Overlay opacity sets how see-through). <a href="controller.html">More on the controller</a>.</li>
     <li><strong>The iPhone keyboard still comes up</strong> with the keyboard button in the bar, and the picture shrinks to make room. Space and typing come from it.</li>
     <li><strong>iPhone Duo, half open:</strong> the picture sits on the upright half and the flat half is one big trackpad with the key row and the bar, or the on-screen controller. While typing, the keyboard takes the flat half under the bar, and the key row (when on) floats over the picture.</li>
+    <li><strong>Sound:</strong> with Mac companion 1.6 the Mac's sound plays on the phone along with the picture, about 70 ms behind it. It plays in silent mode too and mixes with music already playing on the phone. Turn it off in gear → Screen → "Play the Mac's sound", or in the menu of the dot in the bar. The Mac keeps playing its own sound.</li>
     <li><strong>Picture setting:</strong> Smooth, Balanced or Sharp in gear → Screen. Sharper means bigger frames; on a busy Wi‑Fi, Smooth keeps up better.</li>
   </ul>
 
@@ -49,10 +50,10 @@
   </ul>
 
   <h2>How it works, briefly</h2>
-  <p>The Mac captures its display with ScreenCaptureKit and encodes it in hardware as HEVC (H.264 where HEVC isn't available), scaled to fit the phone's screen. Frames are split into small encrypted datagrams and sent over UDP, with one parity packet per few data packets so a single loss costs nothing; the phone asks for anything still missing by number and gives up on a frame rather than wait. Everything is sealed with keys derived from the session's key exchange, the same one that protects your typing, so the picture is as private as the input. The full design is in the <a href="https://github.com/sebastianvidal/couchpad#appendix-b-protocol">README</a>.</p>
+  <p>The Mac captures its display with ScreenCaptureKit and encodes it in hardware as HEVC (H.264 where HEVC isn't available), scaled to fit the phone's screen. Frames are split into small encrypted datagrams and sent over UDP, with one parity packet per few data packets so a single loss costs nothing; the phone asks for anything still missing by number and gives up on a frame rather than wait. Everything is sealed with keys derived from the session's key exchange, the same one that protects your typing, so the picture is as private as the input. The sound comes from the same capture, as Opus in 10 ms packets over UDP, each one also carrying copies of the two before it; the phone plays it from a small buffer that adapts to the Wi‑Fi. The full design is in the <a href="https://github.com/sebastianvidal/couchpad#appendix-b-protocol">README</a>.</p>
 
   <h2>Privacy</h2>
-  <p>The picture goes from the Mac to your phone and nowhere else. Nothing is recorded or stored; Screen Recording permission is used only while the picture is on. Windows hosts don't stream yet and the phone hides the toggle for them.</p>
+  <p>The picture and the sound go from the Mac to your phone and nowhere else. Nothing is recorded or stored; Screen Recording permission is used only while the picture is on. Windows hosts don't stream yet and the phone hides the toggle for them.</p>
 
   <footer>
     <a href="index.html">← Couchpad</a> · <a href="controller.html">On-screen controller</a> · <a href="remote.html">Away from home</a> · Problems or ideas: <a href="https://github.com/sebastianvidal/couchpad/issues">open an issue</a>.
