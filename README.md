@@ -149,7 +149,8 @@ https://sebastianvidal.github.io/couchpad/controller.html
 - **Upright** the pad takes the bottom half of the screen, under the picture or trackpad.
   **Sideways** it is a short band under the picture: stick, keys, diamond; or, with Settings →
   Pad over the picture, it floats translucent over the picture, the key row with it, and the
-  picture keeps the whole height, like touch controls over a game. Settings → Overlay opacity
+  picture keeps the whole height, like touch controls over a game. With the pad off, the key
+  row stays over the picture where it was. Settings → Overlay opacity
   sets how solid its keys are, from faint labels only to solid keys (half by default); the
   labels stay a little stronger than the keys, so they never disappear. **Half open
   on an iPhone Duo** it fills the flat half and the picture sits on the upright one.

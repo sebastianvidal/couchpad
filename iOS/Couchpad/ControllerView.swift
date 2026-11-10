@@ -31,11 +31,18 @@ struct ControllerView: View {
     /// `AppSettings.overlayOpacity`, the labels a little stronger (`KeyButton.labelOpacity`).
     /// Only used with `overlay`.
     var overlayOpacity: Double = 0.5
+    /// Only with `overlay`: the pad itself is off and only the strip is drawn, exactly where
+    /// it sits with the pad, so turning the pad off or on moves nothing else.
+    var padHidden = false
     /// The strip's F bar and key row (`AppSettings.showKeyRow`, the bar's ⌘ button).
     var showKeys = true
     @State private var keyFrames: [Int: CGRect] = [:]
     @State private var pressedCodes = Set<Int>()
     @State private var showF = false
+    /// The strip is a different view in the pad and while typing; this ties the two, so when
+    /// the keyboard comes or goes the row slides to its new place instead of one copy fading
+    /// out while another fades in.
+    @Namespace private var stripSpace
 
     private let gap: CGFloat = 4
     /// The programmable row: labelled by what they do, tagged with the pad control they are.
@@ -104,6 +111,7 @@ struct ControllerView: View {
             row = min(unit * 1.2, max(28, (size.height - barHeight - 2 * gap) / 2))
         }
         return KeyStripView(client: client, state: state, rowHeight: row, showFExternal: $showF)
+            .matchedGeometryEffect(id: "strip", in: stripSpace)
     }
 
     /// The programmable keys, the stick and the diamond, with the strip's F bar and key
@@ -142,6 +150,7 @@ struct ControllerView: View {
         return VStack(spacing: blockGap) {
             if showKeys {
                 KeyStripView(client: client, state: state, rowHeight: row, showFExternal: $showF)
+                    .matchedGeometryEffect(id: "strip", in: stripSpace)
             }
             VStack(spacing: gap) {
                 if !(showKeys && showF) {
@@ -211,6 +220,7 @@ struct ControllerView: View {
             VStack(spacing: gap) {
                 if showKeys {
                     KeyStripView(client: client, state: state, rowHeight: keyRow, showFExternal: $showF)
+                        .matchedGeometryEffect(id: "strip", in: stripSpace)
                 }
                 if !(showKeys && showF) {
                     HStack(spacing: gap) {
@@ -258,10 +268,16 @@ struct ControllerView: View {
         let room = size.width - edge * 2 - stick - diamondWidth - air * 2
         // Key-shaped: as wide as the room allows, but never wider than 1.5 heights.
         let unit = max(0, min(keyRow * 1.5, (room - gap * 6) / 7))
+        // With the pad off (`padHidden`), its parts leave empty room of their own size behind,
+        // which takes no touches.
         return HStack(alignment: .bottom, spacing: 0) {
-            VirtualStick(controller: controller)
-                .frame(width: stick, height: stick)
-                .background(Circle().fill(Color.black.opacity(0.4 * overlayOpacity)).allowsHitTesting(false))
+            if padHidden {
+                Color.clear.frame(width: stick, height: stick).allowsHitTesting(false)
+            } else {
+                VirtualStick(controller: controller)
+                    .frame(width: stick, height: stick)
+                    .background(Circle().fill(Color.black.opacity(0.4 * overlayOpacity)).allowsHitTesting(false))
+            }
             Spacer(minLength: air)
             VStack(spacing: gap) {
                 if showKeys {
@@ -270,16 +286,24 @@ struct ControllerView: View {
                         .frame(width: unit * 7 + gap * 6)
                 }
                 if !(showKeys && showF) {
-                    HStack(spacing: gap) {
-                        ForEach(ControllerView.topRow, id: \.0) { control, tag in
-                            key(control, tag: tag).frame(width: unit, height: keyRow)
+                    if padHidden {
+                        Color.clear.frame(width: unit * 7 + gap * 6, height: keyRow).allowsHitTesting(false)
+                    } else {
+                        HStack(spacing: gap) {
+                            ForEach(ControllerView.topRow, id: \.0) { control, tag in
+                                key(control, tag: tag).frame(width: unit, height: keyRow)
+                            }
                         }
                     }
                 }
             }
             Spacer(minLength: air)
-            diamond(unit: face, row: face)
-                .frame(width: diamondWidth, height: face + 2 * diamondLift(face))
+            if padHidden {
+                Color.clear.frame(width: diamondWidth, height: face + 2 * diamondLift(face)).allowsHitTesting(false)
+            } else {
+                diamond(unit: face, row: face)
+                    .frame(width: diamondWidth, height: face + 2 * diamondLift(face))
+            }
         }
         .padding(.horizontal, edge)
         .padding(.bottom, bottom)

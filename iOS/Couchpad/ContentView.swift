@@ -30,6 +30,11 @@ struct ContentView: View {
     @State private var screenPan = CGPoint.zero
     /// Waits for a pinch to settle before asking the host for a sharper (or coarser) stream.
     @State private var zoomSettle: Task<Void, Never>?
+    /// Waits for the picture's pane to stop changing size before asking for a stream of it.
+    @State private var resizeSettle: Task<Void, Never>?
+    /// When the keyboard was last asked up or down: a window that changes height just after
+    /// is iOS making room for it (split view), and the layout follows with the keyboard.
+    @State private var keyboardToggledAt = Date.distantPast
     /// Top edge of the iOS keyboard in landscape (window coordinates), measured the first
     /// time it appears and remembered per window size, so the layout can end exactly where
     /// it begins. Keyed by size because a foldable has two displays with different keyboards.
@@ -85,7 +90,13 @@ struct ContentView: View {
             // Measures the whole window, ignoring the keyboard and the safe areas, so the
             // portrait/landscape decision never flips because a keyboard came up.
             GeometryReader { geo in
-                Color.clear.onChange(of: geo.size, initial: true) { _, size in windowSize = size }
+                Color.clear.onChange(of: geo.size, initial: true) { old, size in
+                    // In split view iOS makes the window taller for the keyboard and shorter
+                    // again after it: the layout that comes with it moves with the keyboard.
+                    let forKeyboard = old.width == size.width && old.height > 0
+                        && Date().timeIntervalSince(keyboardToggledAt) < 1
+                    withAnimation(forKeyboard ? .keyboard : nil) { windowSize = size }
+                }
             }
             .ignoresSafeArea()
         )
@@ -160,7 +171,7 @@ struct ContentView: View {
             guard inputState.keyboardShown, !inputState.suspended else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 if inputState.keyboardShown, !inputState.suspended, !KeyInputUIView.ownsKeyboard {
-                    inputState.keyboardShown = false
+                    withAnimation(.keyboard) { inputState.keyboardShown = false }
                 }
             }
         }
@@ -206,7 +217,20 @@ struct ContentView: View {
             // Sound only ever plays with the picture; without it, the next `v 1` brings it along.
             if client.isConnected, screenOn, trackpadPixels.width > 0 { client.setSound(on) }
         }
-        .onChange(of: trackpadPixels) { _, _ in syncScreen() }
+        .onChange(of: trackpadPixels) { old, new in
+            // While the layout moves (the keyboard coming or going, the pad giving way) the
+            // pane changes size in steps; the picture scales along, and the host is asked for
+            // the new size once, when it has settled, rather than restarting its stream at
+            // every step. The first size (the picture appearing) goes out at once.
+            resizeSettle?.cancel()
+            guard old.width > 0, new.width > 0 else { syncScreen(); return }
+            resizeSettle = Task {
+                try? await Task.sleep(for: .milliseconds(400))
+                guard !Task.isCancelled else { return }
+                syncScreen()
+            }
+        }
+        .onChange(of: inputState.keyboardShown) { _, _ in keyboardToggledAt = Date() }
         .onChange(of: settings.screenQuality) { _, _ in syncScreen() }
         .onChange(of: screenZoom) { _, _ in
             // Zoomed in, the pane's pixels are spread thin: once the fingers settle, ask for
@@ -553,10 +577,19 @@ struct ContentView: View {
             }
             // With the pad on, the iOS keyboard takes the pad's place (only its key row
             // stays, when on) until it is dismissed.
-            barButton(inputState.keyboardShown ? "keyboard.chevron.compact.down" : "keyboard",
-                      label: inputState.keyboardShown ? "Hide keyboard" : "Show keyboard") {
-                inputState.keyboardShown.toggle()
+            // Both symbols are always there and only their opacity changes: the bar slides
+            // with the keyboard, and a swapped symbol is a new view, drawn at once where the
+            // button ends up, ahead of its button.
+            Button {
+                withAnimation(.keyboard) { inputState.keyboardShown.toggle() }
+            } label: {
+                barIcon(ZStack {
+                    Image(systemName: "keyboard").opacity(inputState.keyboardShown ? 0 : 1)
+                    Image(systemName: "keyboard.chevron.compact.down").opacity(inputState.keyboardShown ? 1 : 0)
+                })
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(inputState.keyboardShown ? "Hide keyboard" : "Show keyboard")
             if client.isConnected {
                 barButton(settings.showController ? "dpad.fill" : "dpad",
                           label: settings.showController ? "Hide the on-screen controller" : "Show the on-screen controller") {
@@ -583,14 +616,16 @@ struct ContentView: View {
     }
 
     private func barButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .frame(width: 44)
-                .frame(maxHeight: .infinity)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
+        Button(action: action) { barIcon(Image(systemName: symbol)) }
+            .buttonStyle(.plain)
+            .accessibilityLabel(label)
+    }
+
+    private func barIcon(_ icon: some View) -> some View {
+        icon
+            .frame(width: 44)
+            .frame(maxHeight: .infinity)
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     /// The key row (F bar over esc, tab, fn and the modifiers), docked under the trackpad
@@ -601,16 +636,21 @@ struct ContentView: View {
         KeyStripView(client: client, state: inputState, rowHeight: isLandscape ? 36 : portraitRowHeight)
     }
 
-    /// Sideways with "Pad over the picture" on (`AppSettings.padOverlay`), the pad is drawn
-    /// over the trackpad or picture instead of in the stack under it, the key row over the
-    /// pad's keys: the pane keeps the whole height above the bar. Not upright, not half open.
-    private var padOverlaid: Bool {
-        settings.showController && settings.padOverlay && isLandscape && !hingePartlyOpen
-    }
+    /// Sideways with "Pad over the picture" on (`AppSettings.padOverlay`), the pad and the
+    /// key row are drawn over the trackpad or picture instead of in the stack under it, the
+    /// key row over the pad's keys: the pane keeps the whole height above the bar. With the
+    /// pad off the key row stays over the picture, where it sits with the pad. Not upright,
+    /// not half open.
+    private var overlayMode: Bool { settings.padOverlay && isLandscape && !hingePartlyOpen }
 
-    /// The overlay is drawn while the iOS keyboard is down. With the keyboard up it goes
-    /// away entirely and the key row (when on) docks above the keyboard, as with the pad off.
-    private var overlayShown: Bool { padOverlaid && !inputState.keyboardShown }
+    private var padOverlaid: Bool { settings.showController && overlayMode }
+
+    /// The overlay (the pad, or the key row alone) is drawn while the iOS keyboard is down.
+    /// With the keyboard up it goes away entirely and the key row (when on) docks above the
+    /// keyboard.
+    private var overlayShown: Bool {
+        overlayMode && (settings.showController || settings.showKeyRow) && !inputState.keyboardShown
+    }
 
     /// The pad in the stack, under the trackpad or picture (or on the flat half), unless it
     /// is overlaid, or the iOS keyboard has taken its place with the key row off: then
@@ -620,10 +660,10 @@ struct ContentView: View {
     }
 
     /// The key row docked on its own, under the trackpad or picture: with the pad off, or
-    /// overlaid while the iOS keyboard has put the overlay away (a pad on screen, in the
-    /// stack or over the pane, has its own).
+    /// in the overlay layout while the iOS keyboard has put the overlay away (a pad in the
+    /// stack has its own row, and so does the overlay).
     private var keyRowDocked: Bool {
-        (!settings.showController || (padOverlaid && !overlayShown)) && settings.showKeyRow
+        settings.showKeyRow && (overlayMode ? inputState.keyboardShown : !settings.showController)
     }
 
     /// The pad over the trackpad or picture, filling its pane, while `overlayShown`. Outside
@@ -631,7 +671,8 @@ struct ContentView: View {
     @ViewBuilder private var overlaidPad: some View {
         if overlayShown {
             ControllerView(controller: controller, client: client, state: inputState, overlay: true,
-                           overlayOpacity: settings.overlayOpacity, showKeys: settings.showKeyRow)
+                           overlayOpacity: settings.overlayOpacity, padHidden: !settings.showController,
+                           showKeys: settings.showKeyRow)
         }
     }
 
@@ -818,7 +859,7 @@ struct ContentView: View {
                 }
                 Section("Keys") {
                     Toggle("Key row", isOn: $settings.showKeyRow)
-                    Text("F1–F12, esc, tab, fn and the modifiers, under the picture or trackpad, or with the controller: at its top, or over the picture with it. The ⌘ button in the bar hides and shows it too.")
+                    Text("F1–F12, esc, tab, fn and the modifiers: under the picture or trackpad, at the top of the controller, or, sideways with Pad over the picture on, over the picture, with or without the controller. The ⌘ button in the bar hides and shows it too.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Screen") {

@@ -11,6 +11,14 @@ final class InputState: ObservableObject {
     @Published var suspended = false
 }
 
+extension Animation {
+    /// The iOS keyboard's own slide: UIKit moves it with a spring of mass 3, stiffness 1000
+    /// and damping 500. Layout changes made with this one move in step with the keyboard
+    /// (the pad giving way to it, the row and the bar riding on top of it) instead of
+    /// jumping ahead of it and settling after.
+    static let keyboard = Animation.interpolatingSpring(mass: 3, stiffness: 1000, damping: 500, initialVelocity: 0)
+}
+
 /// Invisible view that owns the iOS keyboard and forwards what is typed.
 struct KeyInputView: UIViewRepresentable {
     let client: Client
