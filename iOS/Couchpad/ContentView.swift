@@ -7,7 +7,16 @@ struct ContentView: View {
     @StateObject private var controller = ControllerBridge()
     @StateObject private var screen = ScreenReceiver()
     /// Size of the trackpad area in pixels, which is the picture size we ask the host for.
+    /// Sideways with the keyboard up it is the pane's size with the keyboard down (see
+    /// `screenBody`), so the stream keeps its size.
     @State private var trackpadPixels = CGSize.zero
+    /// The picture's pane's height sideways with the keyboard down, and the window it was
+    /// measured in: the keyboard pushes the picture up rather than shrinking it, and this is
+    /// the size it keeps (`ScreenGeometry.pushed`). Measured rather than worked out from
+    /// the keyboard's inset, because rows come and go with the keyboard too (the key row
+    /// docks above it in the overlay layout, the pad band goes).
+    @State private var restingPaneHeight: CGFloat = 0
+    @State private var restingPaneWindow = CGSize.zero
     @State private var showSettings = false
     @State private var pairingCode = ""
     @AppStorage("hasSeenSetup") private var hasSeenSetup = false
@@ -488,7 +497,10 @@ struct ContentView: View {
     /// under it (when on) and one slim bar; the iOS keyboard is summoned from the bar. Sideways, the
     /// body ignores the keyboard (see `body`), so everything is inset by hand for the row
     /// and the bar to sit just above it; otherwise keyboard avoidance at the root shrinks
-    /// the picture for us.
+    /// the picture for us. Sideways the pane does get shorter, but the picture does not
+    /// shrink with it: it keeps its keyboard-down size and is pushed up (`keyboardPushes`),
+    /// its bottom just above the key row or bar and its top cut off, and moving a pinch looks
+    /// at the rest. Shrunk into the strip above the keyboard it was too small to read.
     private var screenBody: some View {
         GeometryReader { geo in
             let inset = keyboardInset(geo)
@@ -496,7 +508,7 @@ struct ContentView: View {
             VStack(spacing: 6) {
                 // Sideways with "Pad over the picture" on, the pad (and the key row with it)
                 // floats over the picture, which keeps the whole height (`padOverlaid`).
-                trackpad.overlay { overlaidPad }
+                trackpadPane(picture: true, keyboardPushes: isLandscape).overlay { overlaidPad }
                 if padOnScreen {
                     // Otherwise the pad never floats over the picture: the picture gives up the
                     // room. Upright it takes the bottom half (a Game Boy); sideways, a short band under it.
@@ -693,25 +705,41 @@ struct ContentView: View {
     private var trackpad: some View { trackpadPane(picture: true) }
 
     /// The trackpad, with the Mac's picture underneath when screen mode is on and `picture`
-    /// asks for it (the half-open layout shows a second, plain trackpad).
-    private func trackpadPane(picture: Bool) -> some View {
+    /// asks for it (the half-open layout shows a second, plain trackpad). The picture fills
+    /// the pane and places itself (`ScreenGeometry`): letterboxed at 1×, growing into the
+    /// pane as it is zoomed, so the pane's rounded shape is its outer clip. With
+    /// `keyboardPushes` (only `screenBody`, sideways) the pane's keyboard-down height is
+    /// measured (`restingPaneHeight`) and the picture keeps that size while the keyboard is up.
+    private func trackpadPane(picture: Bool, keyboardPushes: Bool = false) -> some View {
         let showPicture = picture && screenOn && client.isConnected
+        let resting = keyboardPushes && showPicture && restingPaneWindow == windowSize ? restingPaneHeight : 0
         return ZStack {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
             if showPicture {
-                ScreenView(receiver: screen, zoom: screenZoom, pan: screenPan)
-                    .aspectRatio(screen.videoSize == .zero ? nil : screen.videoSize.width / screen.videoSize.height, contentMode: .fit)
+                ScreenView(receiver: screen, zoom: screenZoom, pan: screenPan, restingHeight: resting)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             TrackpadView(client: client, settings: settings, videoSize: showPicture && settings.tapToPoint ? screen.videoSize : .zero,
-                         pictureSize: showPicture ? screen.videoSize : .zero,
+                         pictureSize: showPicture ? screen.videoSize : .zero, restingHeight: resting,
                          onZoom: { zoom, pan in screenZoom = zoom; screenPan = pan })
                 .background(
                     GeometryReader { geo in
-                        Color.clear.onChange(of: geo.size, initial: true) { _, size in
+                        // The window and the layout too: rotated sideways, the pane can report
+                        // its size before `windowSize` (and so `keyboardPushes`) has caught up.
+                        Color.clear.onChange(of: PaneMeasure(size: geo.size, window: windowSize, keyboardPushes: keyboardPushes), initial: true) { _, measure in
                             guard picture else { return }   // the stream is sized to the picture's pane
-                            trackpadPixels = CGSize(width: size.width * displayScale, height: size.height * displayScale)
+                            let size = measure.size
+                            var height = size.height
+                            if keyboardPushes, !inputState.keyboardShown {
+                                if restingPaneHeight != size.height { restingPaneHeight = size.height }
+                                if restingPaneWindow != windowSize { restingPaneWindow = windowSize }
+                            } else if keyboardPushes, restingPaneWindow == windowSize {
+                                // The pane as it is without the keyboard, so the keyboard
+                                // coming up asks the host for nothing new.
+                                height = max(height, restingPaneHeight)
+                            }
+                            trackpadPixels = CGSize(width: size.width * displayScale, height: height * displayScale)
                         }
                     }
                 )
@@ -885,7 +913,7 @@ struct ContentView: View {
                     Toggle("Touch the picture to point there", isOn: $settings.tapToPoint)
                     Text("The pointer jumps to where your finger is, so a tap clicks what is under it. Off, a swipe moves the pointer and a tap clicks where it is.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Text("Pinch the picture to zoom in, move the pinch to look around, pinch back out to reset.")
+                    Text("Pinch the picture to zoom in (it fills the trackpad first), move the pinch to look around, pinch back out to reset. Sideways, the keyboard pushes the picture up rather than shrinking it: move a pinch down to see its top.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Controller") {
@@ -973,6 +1001,13 @@ struct HoldButton: View {
                 }
         )
     }
+}
+
+/// What the picture's pane measures itself for (see `trackpadPane`).
+private struct PaneMeasure: Equatable {
+    var size: CGSize
+    var window: CGSize
+    var keyboardPushes: Bool
 }
 
 /// A pending task held by reference, so replacing it does not count as a state change.

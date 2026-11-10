@@ -146,13 +146,17 @@ struct ScreenHealth: Equatable {
     }
 }
 
-/// The picture, letterboxed inside whatever space it is given. `zoom` and `pan` come from
-/// the trackpad's pinch (see TrackpadUIView): the picture is scaled about its centre, shifted
-/// by `pan`, and clipped to its own frame, so the letterbox never shows picture.
+/// The picture, filling the trackpad's pane: placed and clipped by `ScreenGeometry`, so at
+/// 1× it is letterboxed as before, zoomed in it grows into the empty trackpad around it,
+/// and sideways with the keyboard up it keeps the size it has with the keyboard down
+/// (`restingHeight`) and is pushed up, its top cut off by the pane. `zoom` and `pan` come
+/// from the trackpad's pinch (see TrackpadUIView), which works from the same geometry.
 struct ScreenView: UIViewRepresentable {
     @ObservedObject var receiver: ScreenReceiver
     var zoom: CGFloat = 1
     var pan = CGPoint.zero
+    /// The pane's height with the keyboard down, or 0; see `ScreenGeometry.pushed`.
+    var restingHeight: CGFloat = 0
 
     func makeUIView(context: Context) -> ScreenUIView {
         let view = ScreenUIView()
@@ -164,6 +168,8 @@ struct ScreenView: UIViewRepresentable {
     func updateUIView(_ uiView: ScreenUIView, context: Context) {
         uiView.zoom = zoom
         uiView.pan = pan
+        uiView.videoSize = receiver.videoSize
+        uiView.restingHeight = restingHeight
         uiView.setNeedsLayout()
     }
 }
@@ -174,10 +180,26 @@ struct ScreenView: UIViewRepresentable {
 /// made last, and when that was not the one on screen the picture stayed empty while the
 /// stream ran on. So the view that is in a window takes the layer: at once when it enters
 /// one, and on every layout if whoever holds it has left its window.
+/// The layer sits in `clipView`, which is the viewport (the part of the pane the picture
+/// shows in) with the pane's rounded corners.
 final class ScreenUIView: UIView {
     var zoom: CGFloat = 1
     var pan = CGPoint.zero
+    var videoSize = CGSize.zero
+    var restingHeight: CGFloat = 0
     weak var videoLayer: CALayer?
+    private let clipView = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        clipView.isUserInteractionEnabled = false
+        clipView.layer.masksToBounds = true
+        clipView.layer.cornerRadius = 16
+        clipView.layer.cornerCurve = .continuous
+        addSubview(clipView)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -185,39 +207,95 @@ final class ScreenUIView: UIView {
     }
 
     private func claimVideoLayer(force: Bool = false) {
-        guard window != nil, let videoLayer, videoLayer.superlayer !== layer else { return }
+        guard window != nil, let videoLayer, videoLayer.superlayer !== clipView.layer else { return }
         let holder = videoLayer.superlayer?.delegate as? UIView
         guard force || holder?.window == nil else { return }
-        layer.addSublayer(videoLayer)
+        clipView.layer.addSublayer(videoLayer)
         setNeedsLayout()
     }
 
+    /// Runs on every step while SwiftUI animates this view's frame (it moves platform views
+    /// a display frame at a time), so the picture follows the pane: with the keyboard
+    /// sliding, the pushed amount is read off the pane's height on each step and the
+    /// picture keeps its size and rides up or down with the bar.
     override func layoutSubviews() {
         super.layoutSubviews()
         claimVideoLayer()
-        let frame = ScreenGeometry.zoomed(bounds, zoom: zoom, pan: pan)
+        let pane = bounds.size
+        let home = ScreenGeometry.home(for: videoSize, in: pane, pushed: ScreenGeometry.pushed(resting: restingHeight, pane: pane))
+        let viewport = ScreenGeometry.viewport(home: home, in: pane, zoom: zoom)
+        // Clamped here too: the trackpad keeps its pan as the fingers left it, and the pane
+        // may have changed shape since (the keyboard, a rotation).
+        let picture = ScreenGeometry.zoomed(home, zoom: zoom, pan: ScreenGeometry.clampedPan(pan, home: home, in: pane, zoom: zoom))
         CATransaction.begin()
         CATransaction.setDisableActions(true)   // no implicit animation: it must follow the fingers
-        for sub in layer.sublayers ?? [] { sub.frame = frame }
+        clipView.frame = viewport
+        for sub in clipView.layer.sublayers ?? [] { sub.frame = picture.offsetBy(dx: -viewport.minX, dy: -viewport.minY) }
         CATransaction.commit()
     }
 }
 
-/// Where a zoomed picture sits, shared by the picture (ScreenUIView) and the trackpad
+/// Where the picture sits in its pane, shared by the picture (ScreenUIView) and the trackpad
 /// mapping touches onto it (TrackpadUIView) so the two agree to the point.
+///
+/// `home` is the picture at 1×. The zoomed picture is `home` scaled about its centre and
+/// moved by `pan`. On each axis it stays centred where `home` is (and `pan` is zero there)
+/// for as long as it fits in the pane; once it is larger than the pane, it covers the whole
+/// pane on that axis and `pan` moves it around within that. So zooming in grows the picture
+/// into the empty trackpad around it before anything is cut off.
 enum ScreenGeometry {
     static let maxZoom: CGFloat = 6
 
-    /// `fit` scaled by `zoom` about its centre and moved by `pan`.
-    static func zoomed(_ fit: CGRect, zoom: CGFloat, pan: CGPoint) -> CGRect {
-        let size = CGSize(width: fit.width * zoom, height: fit.height * zoom)
-        return CGRect(x: fit.midX - size.width / 2 + pan.x, y: fit.midY - size.height / 2 + pan.y,
+    /// How far the keyboard pushes the picture: how much shorter the pane is than with the
+    /// keyboard down (`resting`, measured then; 0 where nothing is pushed). Sideways the
+    /// keyboard pushes the picture up instead of shrinking it. Read off the pane's current
+    /// height, so while the keyboard slides it follows the pane step by step and the
+    /// picture keeps its size. Under half a point is rounding, not a keyboard.
+    static func pushed(resting: CGFloat, pane: CGSize) -> CGFloat {
+        let pushed = resting - pane.height
+        return pushed < 0.5 ? 0 : pushed
+    }
+
+    /// The picture at 1×: aspect-fitted into the pane as if the pane were `pushed` points
+    /// taller, which is what it is without the keyboard. No taller than the pane, it is
+    /// centred in it; taller, its bottom sits at the pane's bottom and its top is cut off
+    /// above the pane. With `pushed` zero this is the plain aspect-fit rect.
+    static func home(for video: CGSize, in pane: CGSize, pushed: CGFloat = 0) -> CGRect {
+        guard video.width > 0, video.height > 0, pane.width > 0, pane.height > 0 else { return CGRect(origin: .zero, size: pane) }
+        let scale = min(pane.width / video.width, (pane.height + max(0, pushed)) / video.height)
+        let size = CGSize(width: video.width * scale, height: video.height * scale)
+        let y = size.height <= pane.height ? (pane.height - size.height) / 2 : pane.height - size.height
+        return CGRect(x: (pane.width - size.width) / 2, y: y, width: size.width, height: size.height)
+    }
+
+    /// `home` scaled by `zoom` about its centre and moved by `pan`.
+    static func zoomed(_ home: CGRect, zoom: CGFloat, pan: CGPoint) -> CGRect {
+        let size = CGSize(width: home.width * zoom, height: home.height * zoom)
+        return CGRect(x: home.midX - size.width / 2 + pan.x, y: home.midY - size.height / 2 + pan.y,
                       width: size.width, height: size.height)
     }
 
-    /// `pan` limited so the zoomed picture always covers the whole of `fit`: no empty strips.
-    static func clampedPan(_ pan: CGPoint, fit: CGRect, zoom: CGFloat) -> CGPoint {
-        let maxX = (zoom - 1) * fit.width / 2, maxY = (zoom - 1) * fit.height / 2
-        return CGPoint(x: min(max(pan.x, -maxX), maxX), y: min(max(pan.y, -maxY), maxY))
+    /// The part of the pane the picture shows in at `zoom`, which is what it is clipped to:
+    /// the unpanned picture, cut to the pane. It grows with the zoom until it is the whole
+    /// pane. (`home` is either centred or covers the pane from its bottom up, so the unpanned
+    /// picture always covers the pane on any axis where it is larger than it.)
+    static func viewport(home: CGRect, in pane: CGSize, zoom: CGFloat) -> CGRect {
+        let cut = zoomed(home, zoom: zoom, pan: .zero).intersection(CGRect(origin: .zero, size: pane))
+        return cut.isNull ? .zero : cut
+    }
+
+    /// `pan` limited so the zoomed picture covers the whole viewport: zero on an axis where
+    /// the picture fits in the pane, and no empty strip inside the pane on one where it is
+    /// larger. The limits meet at zero when the picture just fills the pane, so the pan
+    /// moves on smoothly as the zoom grows past that point.
+    static func clampedPan(_ pan: CGPoint, home: CGRect, in pane: CGSize, zoom: CGFloat) -> CGPoint {
+        let view = viewport(home: home, in: pane, zoom: zoom)
+        let still = zoomed(home, zoom: zoom, pan: .zero)
+        guard !view.isEmpty else { return .zero }
+        func clamp(_ value: CGFloat, _ low: CGFloat, _ high: CGFloat) -> CGFloat {
+            low <= high ? min(max(value, low), high) : (low + high) / 2
+        }
+        return CGPoint(x: clamp(pan.x, view.maxX - still.maxX, view.minX - still.minX),
+                       y: clamp(pan.y, view.maxY - still.maxY, view.minY - still.minY))
     }
 }

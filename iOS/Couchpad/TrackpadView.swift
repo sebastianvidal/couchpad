@@ -5,7 +5,10 @@ import UIKit
 /// tap-then-touch-and-hold drags, three-finger swipes are system gestures
 /// (Mission Control, App Exposé, Spaces on the Mac; Task View etc. on Windows).
 /// With the picture underneath, a pinch zooms it (moving the pinch looks around; pinching
-/// back out resets), reported through `onZoom` so the picture can follow.
+/// back out resets), reported through `onZoom` so the picture can follow. The picture's
+/// place comes from `ScreenGeometry`, shared with ScreenView: zoomed in it grows into the
+/// trackpad around it, and sideways with the keyboard up it keeps its keyboard-down size
+/// (`restingHeight`), taller than the pane, so moving a pinch looks around it even at 1×.
 struct TrackpadView: UIViewRepresentable {
     let client: Client
     let settings: AppSettings
@@ -14,6 +17,8 @@ struct TrackpadView: UIViewRepresentable {
     var videoSize = CGSize.zero
     /// Size of the picture underneath, whether or not touches point at it; .zero without one.
     var pictureSize = CGSize.zero
+    /// The pane's height with the keyboard down, or 0; see `ScreenGeometry.pushed`.
+    var restingHeight: CGFloat = 0
     var onZoom: ((CGFloat, CGPoint) -> Void)?
 
     func makeUIView(context: Context) -> TrackpadUIView {
@@ -28,6 +33,10 @@ struct TrackpadView: UIViewRepresentable {
         uiView.pictureSize = pictureSize
         uiView.onZoom = onZoom
         if pictureSize == .zero { uiView.resetZoom() }   // the picture went away; the next one starts at 1×
+        if uiView.restingHeight != restingHeight {
+            uiView.restingHeight = restingHeight
+            uiView.setNeedsLayout()
+        }
     }
 }
 
@@ -51,18 +60,42 @@ final class TrackpadUIView: UIView {
     private var pinchCentroid = CGPoint.zero
     private var pendingScroll = CGPoint.zero
 
-    /// Where a picture of `size` sits inside this view (aspect-fit, before zoom).
-    private func fitRect(_ size: CGSize) -> CGRect {
-        guard size.width > 0, size.height > 0, bounds.width > 0, bounds.height > 0 else { return bounds }
-        let scale = min(bounds.width / size.width, bounds.height / size.height)
-        let fitted = CGSize(width: size.width * scale, height: size.height * scale)
-        return CGRect(x: (bounds.width - fitted.width) / 2, y: (bounds.height - fitted.height) / 2, width: fitted.width, height: fitted.height)
+    var restingHeight: CGFloat = 0
+    private var zoomReportPending = false
+
+    /// Where a picture of `size` sits inside this view at 1×.
+    private func homeRect(_ size: CGSize) -> CGRect {
+        ScreenGeometry.home(for: size, in: bounds.size, pushed: ScreenGeometry.pushed(resting: restingHeight, pane: bounds.size))
     }
 
-    /// Where the picture is right now, zoom included, for mapping touches to it.
+    /// Where the picture is right now, zoom included, for mapping touches to it. The pan
+    /// is clamped as the picture clamps it, in case the pane changed shape since the pinch.
     private var videoRect: CGRect {
         guard absolute else { return bounds }
-        return ScreenGeometry.zoomed(fitRect(videoSize), zoom: zoom, pan: pan)
+        let home = homeRect(videoSize)
+        return ScreenGeometry.zoomed(home, zoom: zoom, pan: ScreenGeometry.clampedPan(pan, home: home, in: bounds.size, zoom: zoom))
+    }
+
+    /// The pane changed shape, the keyboard sliding sideways among other things. At 1× the
+    /// only pan there is, is a pushed picture's vertical one, and it is clamped as the pane
+    /// grows back: with the keyboard down it is zero again, so the keyboard coming up always
+    /// starts with the bottom of the picture showing, just above the bar. Zoomed in, the pan
+    /// is left alone (it is clamped wherever it is used), so the picture rides up or down
+    /// with the bar and what was at the bottom of the pane stays there. ContentView's copy
+    /// is told on the next turn of the run loop, once, however many steps the slide takes.
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard zoom == 1, pan != .zero, pictureSize != .zero else { return }
+        let clamped = ScreenGeometry.clampedPan(pan, home: homeRect(pictureSize), in: bounds.size, zoom: 1)
+        guard clamped != pan else { return }
+        pan = clamped
+        guard !zoomReportPending else { return }
+        zoomReportPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.zoomReportPending = false
+            self.onZoom?(self.zoom, self.pan)
+        }
     }
 
     /// Back to 1×. Quietly: this runs from `updateUIView`, where a SwiftUI state change would
@@ -101,16 +134,17 @@ final class TrackpadUIView: UIView {
             sendScroll(delta)
         case .pinch:
             guard pinchDistance > 0 else { pinchDistance = distance; return }
-            let fit = fitRect(pictureSize)
-            let before = ScreenGeometry.zoomed(fit, zoom: zoom, pan: pan)
+            let home = homeRect(pictureSize)
+            let before = ScreenGeometry.zoomed(home, zoom: zoom, pan: ScreenGeometry.clampedPan(pan, home: home, in: bounds.size, zoom: zoom))
             var newZoom = min(ScreenGeometry.maxZoom, zoom * distance / pinchDistance)
             if newZoom < 1.03 { newZoom = 1 }   // pinched back out: snap home
-            // The spot under the fingers stays under them: it moves with the pinch's centre.
+            // The spot under the fingers stays under them, as far as the clamp allows: it
+            // moves with the pinch's centre. At 1× that still pans a pushed picture.
             let spot = CGPoint(x: (pinchCentroid.x - before.minX) / zoom, y: (pinchCentroid.y - before.minY) / zoom)
             let origin = CGPoint(x: centre.x - spot.x * newZoom, y: centre.y - spot.y * newZoom)
-            let home = ScreenGeometry.zoomed(fit, zoom: newZoom, pan: .zero)
+            let still = ScreenGeometry.zoomed(home, zoom: newZoom, pan: .zero)
             zoom = newZoom
-            pan = newZoom == 1 ? .zero : ScreenGeometry.clampedPan(CGPoint(x: origin.x - home.minX, y: origin.y - home.minY), fit: fit, zoom: newZoom)
+            pan = ScreenGeometry.clampedPan(CGPoint(x: origin.x - still.minX, y: origin.y - still.minY), home: home, in: bounds.size, zoom: newZoom)
             pinchDistance = distance
             pinchCentroid = centre
             onZoom?(zoom, pan)
