@@ -148,13 +148,17 @@ https://sebastianvidal.github.io/couchpad/controller.html
 
 - **Layout.** An 8-way stick on the left (diagonals press two keys at once; drag it like a
   controller's stick, with a dead zone, or touch and hold a direction like a d-pad), A B X Y in a
-  diamond on the right, and seven programmable keys above them: the pad's L1, L2, L3, menu,
-  options, R1 and R2. Every key shows what it is bound to. Each press gives a light tap of
+  diamond on the right, and seven programmable keys: the pad's L1, L2, L3, menu, options, R1
+  and R2. Every key shows what it is bound to. Each press gives a light tap of
   haptics, and a finger can slide from key to key without lifting.
-- **Upright** the pad takes the bottom half of the screen, under the picture or trackpad.
+- **Upright** the pad takes the bottom half of the screen, under the picture or trackpad, laid
+  out like a hand-held console: the key row at the top, L2 and L1 above the stick, R1 and R2
+  above the diamond, and L3, menu and options grouped in the middle under them.
   **Sideways** it is a short band under the picture: stick, keys, diamond; or, with Settings →
   Pad over the picture, it floats translucent over the picture, the key row with it, and the
-  picture keeps the whole height, like touch controls over a game. With the pad off, the key
+  picture keeps the whole height, like touch controls over a game: L1 and L2 above the stick,
+  R1 and R2 above the diamond, the key row along the bottom between them, and L3, menu and
+  options grouped in the middle over the key row. With the pad off, the key
   row stays over the picture where it was. Settings → Overlay opacity
   sets how solid its keys are, from faint labels only to solid keys (half by default); the
   labels stay a little stronger than the keys, so they never disappear. **Half open

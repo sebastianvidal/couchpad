@@ -22,11 +22,13 @@ final class AppSettings: ObservableObject {
     /// The on-screen controller (stick, look surface, buttons) in place of the trackpad.
     @Published var showController: Bool { didSet { save("showController", showController) } }
     /// The key row (F1–F12 bar, esc, tab, fn, the modifiers): under the trackpad or picture,
-    /// or at the top of the pad. On by default; the bar's ⌘ button toggles it everywhere.
+    /// or in the pad (at its top upright, over the keys in the sideways band, over the
+    /// picture with the overlaid pad). On by default; the bar's ⌘ button toggles it everywhere.
     @Published var showKeyRow: Bool { didSet { save("showKeyRow", showKeyRow) } }
-    /// Sideways, the pad drawn over the trackpad or picture (stick and diamond in its bottom
-    /// corners, the programmable keys between them) instead of in a band under it, like touch
-    /// controls over a game. Does nothing upright or half open.
+    /// Sideways, the pad drawn over the trackpad or picture instead of in a band under it,
+    /// like touch controls over a game: stick and diamond near its bottom corners with their
+    /// shoulder keys above them, the key row along the bottom between them, and L3, menu and
+    /// opt over the key row. Does nothing upright or half open.
     @Published var padOverlay: Bool { didSet { save("padOverlay", padOverlay) } }
     /// How solid the overlaid pad's and key row's resting keys are, fills and labels alike,
     /// 0 (labels only, faint) to 1 (solid keys), the labels 20 points above the fills; the stick's dark disc follows in

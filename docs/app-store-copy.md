@@ -39,7 +39,7 @@ KEYBOARD
 ON-SCREEN CONTROLLER
 Tap the d-pad button and the bottom of the phone becomes a gamepad, like a hand-held console under the trackpad:
 • An 8-way stick on the left; diagonals press two keys at once
-• A B X Y on the right, and seven programmable keys above them
+• A B X Y on the right, shoulder keys above them and three more keys in the middle, seven programmable keys in all
 • Every key shows what it does: any keyboard key, left click, right click, or nothing
 • Presets for FPS games (WASD + mouse look), MapleStory and arrow-key games
 • Haptics on every press, and a finger can slide from key to key
@@ -157,7 +157,7 @@ This build adds an on-screen game controller and replaces the old key strip with
 
 • Controller on/off: tap the d-pad button in the bar. Upright, does the controller take the bottom half with the picture or trackpad above it? Sideways, a short band under the picture? Half-open iPhone Duo: picture on one half, controller on the other?
 • Stick: move in all eight directions; diagonals should press two keys (WASD in the FPS preset). Does the knob follow your thumb, and does the direction change feel right (a tick each change)?
-• Buttons: hold A B X Y and the seven keys above; slide a finger from one key to the next (the first releases, the next presses). Press the stick and a button at the same time.
+• Buttons: hold A B X Y and the seven keys around them; slide a finger from one key to the next (the first releases, the next presses). Press the stick and a button at the same time.
 • Bindings: Settings → Controller → Bindings. Switch presets (FPS, MapleStory, Arrows) and change one key; each on-screen key should show its new binding right away.
 • Key row: the F1–F12 bar plus esc, tab, fn and the modifiers are above the controller (or under the picture with the controller off), on by default; the ⌘ button in the bar hides and shows them. Hold shift and press a key; tap Release. Open F1–F12 and back.
 • Keyboard: tap the keyboard button in the bar. The controller should give way to the iPhone keyboard with the key row (when on) above it, and come back when you hide the keyboard. Type a sentence.
