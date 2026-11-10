@@ -6,8 +6,8 @@ from PIL import Image, ImageCms, ImageDraw, ImageFilter
 #   search results        3:2, 1920x1280 up to 3840x2560 (rendered at the maximum)
 # PNG/JPEG, no alpha. Apple's spec page gives no pixel safe area (that lives in its design
 # templates); its best practices say to keep the focal point in the centre so nothing is
-# clipped, so the devices sit in the middle with wide margins. No text: the App Store
-# draws the name, icon and Get button over the asset itself.
+# clipped, so the devices sit in the middle with wide margins. No text: it is optional, and
+# the safe areas for it are only in Apple's design templates (see docs/app-store-copy.md).
 #
 #   python3 Tools/compose-artwork.py <raw dir> <out dir>
 #

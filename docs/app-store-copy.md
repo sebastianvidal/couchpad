@@ -195,8 +195,13 @@ phone sets and the Duo set.
 
 Regenerate with `python3 Tools/compose-screenshots.py <raw captures> <out dir> large|medium`;
 the script lists the raw file names it expects and skips any that are missing (raw captures:
-`xcrun simctl io <udid> screenshot name.png`). Picture shots: set the Mac to an empty desktop
-first; the streamed picture is whatever is on its screen.
+`xcrun simctl io <udid> screenshot name.png`). Picture shots: the streamed picture is whatever
+is on the Mac's main display at that moment, on whichever desktop is in front, so put only
+what may be published there first. The current set shows the Couchpad site in one Safari
+window (its favourites bar, with other sites' icons, is visible: hide it with ⇧⌘B next time).
+Look at every capture before keeping it. The 6.9" 05 and 06 show the simulator's status bar:
+`xcrun simctl status_bar <udid> override --time 9:41 --batteryState charged --batteryLevel 100
+--cellularBars 4` before capturing, `clear` after.
 
 iPhone Duo set, `docs/screenshots/duo/`, all with the on-screen controller and the picture:
 outer display 1398×2034 (`duo-outer-01-portrait`, `duo-outer-02-landscape`, folded) and inner
@@ -204,7 +209,10 @@ display 2007×2853 (`duo-inner-01-portrait` and `duo-inner-02-landscape` unfolde
 `duo-inner-03-half-open` split at the hinge). Regenerate with
 `python3 Tools/compose-duo.py <raw captures> <out dir>`; raw captures come from the Duo
 simulator, one display at a time: `xcrun simctl io <duo udid> screenshot --display=1 outer.png`
-(`--display=3` for the inner one). Postures come from Device Hub's toolbar.
+(`--display=3` for the inner one). Postures come from Device Hub's toolbar. The two sideways
+shots use the overlay (`defaults write com.seb.Couchpad padOverlay -bool true`): the
+controller floats over the picture. Keep Device Hub's window off the Mac's desktop while
+capturing, or it ends up in the picture.
 
 ### Promotional artwork (header and search results)
 
@@ -221,9 +229,13 @@ live version from Asset Library without a new build.
 
 Both show the same thing on the site's navy gradient: the 6.3" iPhone upright with the Mac's
 picture over the on-screen controller, and the unfolded iPhone Duo sideways beside it, as one
-group centred with wide margins. No text, logos or icon: the App Store draws the name, icon
-and Get button over the asset. Apple's spec page gives no pixel safe area (that is in its
-design templates) and says to keep the focal point in the centre; check with **Preview** in
+group centred with wide margins, the Duo with the overlay controller. No text, logos or icon.
+Text is optional: Apple's asset best practices (developer.apple.com/app-store/asset-best-practices)
+allow "a short phrase that enhances your visual", localised for every language the app
+supports; we leave it out because the safe areas are only published inside Apple's design
+templates, not as pixel figures, and the two placements crop differently. Whether the App
+Store draws the name, icon or Get button over these assets is not documented anywhere we
+found. Apple says to keep the focal point in the centre; check with **Preview** in
 App Store Connect before submitting. Apple also accepts a 16:9 5244×2950 PNG as a universal
 asset for both placements; we don't make one.
 
