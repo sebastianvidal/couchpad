@@ -122,9 +122,12 @@ struct ContentView: View {
         .onChange(of: showSettings) { _, _ in syncKeyboardSuspension() }
         .onChange(of: showScanner) { _, _ in syncKeyboardSuspension() }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
-            guard let frame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
-            NSLog("Keyboard frame %@ in window %@", NSCoder.string(for: frame), NSCoder.string(for: windowSize))
-            // The frame is in screen coordinates; on a phone the window fills the screen.
+            guard let screenFrame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
+            // The frame is in screen coordinates and the layout works in the window's: they
+            // differ in split view, where the window is only part of the screen.
+            let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+            let frame = window.map { $0.convert(screenFrame, from: $0.screen.coordinateSpace) } ?? screenFrame
+            NSLog("Keyboard frame %@ (screen %@) in window %@", NSCoder.string(for: frame), NSCoder.string(for: screenFrame), NSCoder.string(for: windowSize))
             // Keyed by window size, so each orientation and posture learns its own.
             guard frame.minY > windowSize.height * 0.3, frame.minY < windowSize.height else { return }
             var heights = keyboardHeights
@@ -161,11 +164,18 @@ struct ContentView: View {
                 }
             }
         }
-        .onChange(of: isLandscape, initial: true) { _, _ in
+        .onChange(of: windowSize, initial: true) { old, new in
             // The iOS keyboard starts hidden in every layout and comes up on demand (the bar's
             // keyboard button, or the key row's): sideways it would cover half the screen,
-            // and upright the trackpad, the picture or the pad is the point.
-            // `initial: true` covers launching already sideways, when onAppear sees no size class yet.
+            // and upright the trackpad, the picture or the pad is the point. So a rotation
+            // puts it away. `initial: true` covers launching already sideways.
+            // A rotation swaps the width and the height. A window that only grew or shrank
+            // in height did not turn: in split view (an app above, Couchpad below) iOS makes
+            // the window taller to fit the keyboard under it, which turns the wide window
+            // into a tall one and back again when the keyboard goes. Taken for a rotation,
+            // that put the keyboard away the moment it came up, every time.
+            let turned = (old.width > old.height) != (new.width > new.height) && old.width != new.width
+            guard old == new || turned else { return }
             inputState.keyboardShown = false
         }
         .onChange(of: screenOn) { _, _ in
