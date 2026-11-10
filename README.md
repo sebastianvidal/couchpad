@@ -22,7 +22,7 @@ between, on your Wi-Fi or through your VPN.
   Mac's screen to the phone over encrypted UDP (below) on top of 1.1's encrypted sessions and
   hardened pairing; it needs the current iPhone build.
 - **Windows:** compiles, not yet run on a real Windows machine (see the appendix).
-- **New:** an [on-screen controller](#on-screen-controller): a stick, A B X Y and seven
+- **New:** an [on-screen controller](#on-screen-controller): a stick, A B X Y and eight
   programmable keys under the picture or trackpad, like a hand-held console. Turn it on with
   the d-pad button in the bar. Works with Mac and Windows hosts.
 - **Also new:** the Mac's screen on the phone. Turn it on with the display icon next to the gear;
@@ -131,7 +131,7 @@ aren't paired yet are listed too, one tap to pair.
 | On a Windows host          | The same keys show as Ctrl / Alt / Win; fn is hidden |
 | Keyboard button (bar)      | Show / hide the iOS keyboard. Space and typing come from it. With the on-screen controller on, the keyboard takes the pad's place (the key row, when on, stays above it) until you put it away |
 | Backbone / Bluetooth controller | Forwarded as keys and mouse. Every button and stick direction is bindable in Settings → Controller → Bindings; presets: FPS (WASD + mouse look), MapleStory (arrows, alt jump, ctrl attack), Arrows |
-| On-screen controller (d-pad button in the bar) | A stick, A B X Y and seven programmable keys, under the picture or trackpad. See [On-screen controller](#on-screen-controller) |
+| On-screen controller (d-pad button in the bar) | A stick, A B X Y and eight programmable keys, under the picture or trackpad. See [On-screen controller](#on-screen-controller) |
 
 Pointer speed, scroll speed, natural scrolling, tap-to-drag, three-finger swipes and
 controller look speed are in the gear menu.
@@ -148,17 +148,17 @@ https://sebastianvidal.github.io/couchpad/controller.html
 
 - **Layout.** An 8-way stick on the left (diagonals press two keys at once; drag it like a
   controller's stick, with a dead zone, or touch and hold a direction like a d-pad), A B X Y in a
-  diamond on the right, and seven programmable keys: the pad's L1, L2, L3, menu, options, R1
-  and R2. Every key shows what it is bound to. Each press gives a light tap of
+  diamond on the right, and eight programmable keys: the pad's L1, L2, L3, menu, options, R3,
+  R1 and R2. Every key shows what it is bound to. Each press gives a light tap of
   haptics, and a finger can slide from key to key without lifting.
 - **Upright** the pad takes the bottom half of the screen, under the picture or trackpad, laid
   out like a hand-held console: the key row at the top, L2 and L1 above the stick, R1 and R2
-  above the diamond, and L3, menu and options grouped in the middle under them.
+  above the diamond, and L3, menu, options and R3 grouped in the middle under them.
   **Sideways** it is a short band under the picture: stick, keys, diamond; or, with Settings →
   Pad over the picture, it floats translucent over the picture, the key row with it, and the
   picture keeps the whole height, like touch controls over a game: L1 and L2 above the stick,
-  R1 and R2 above the diamond, the key row along the bottom between them, and L3, menu and
-  options grouped in the middle over the key row. With the pad off, the key
+  R1 and R2 above the diamond, the key row along the bottom between them, and L3, menu,
+  options and R3 grouped in the middle over the key row. With the pad off, the key
   row stays over the picture where it was. Settings → Overlay opacity
   sets how solid its keys are, from faint labels only to solid keys (half by default); the
   labels stay a little stronger than the keys, so they never disappear. **Half open

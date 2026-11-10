@@ -27,8 +27,8 @@ final class AppSettings: ObservableObject {
     @Published var showKeyRow: Bool { didSet { save("showKeyRow", showKeyRow) } }
     /// Sideways, the pad drawn over the trackpad or picture instead of in a band under it,
     /// like touch controls over a game: stick and diamond near its bottom corners with their
-    /// shoulder keys above them, the key row along the bottom between them, and L3, menu and
-    /// opt over the key row. Does nothing upright or half open.
+    /// shoulder keys above them, the key row along the bottom between them, and L3, menu, opt
+    /// and R3 over the key row. Does nothing upright or half open.
     @Published var padOverlay: Bool { didSet { save("padOverlay", padOverlay) } }
     /// How solid the overlaid pad's and key row's resting keys are, fills and labels alike,
     /// 0 (labels only, faint) to 1 (solid keys), the labels 20 points above the fills; the stick's dark disc follows in

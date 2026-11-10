@@ -39,7 +39,7 @@ KEYBOARD
 ON-SCREEN CONTROLLER
 Tap the d-pad button and the bottom of the phone becomes a gamepad, like a hand-held console under the trackpad:
 • An 8-way stick on the left; diagonals press two keys at once
-• A B X Y on the right, shoulder keys above them and three more keys in the middle, seven programmable keys in all
+• A B X Y on the right, shoulder keys above them and four more keys in the middle, eight programmable keys in all
 • Every key shows what it does: any keyboard key, left click, right click, or nothing
 • Presets for FPS games (WASD + mouse look), MapleStory and arrow-key games
 • Haptics on every press, and a finger can slide from key to key
@@ -81,7 +81,7 @@ remote,mouse,touchpad,wireless,mac,pc,windows,tv,couch,controller,gamepad,cursor
 
 ## What's New (1.2)
 
-- On-screen controller: tap the d-pad button in the bar for a stick, A B X Y and seven programmable keys under the picture or trackpad, like a hand-held console. Upright it takes the bottom half of the screen, sideways a short band under the picture, and on a half-open iPhone Duo the flat half. Same bindings and presets as a physical controller (FPS, MapleStory, Arrows); every key shows what it does.
+- On-screen controller: tap the d-pad button in the bar for a stick, A B X Y and eight programmable keys under the picture or trackpad, like a hand-held console. Upright it takes the bottom half of the screen, sideways a short band under the picture, and on a half-open iPhone Duo the flat half. Same bindings and presets as a physical controller (FPS, MapleStory, Arrows); every key shows what it does.
 - The key row (F1–F12, esc, tab, fn and the modifiers) sits above the controller, or under the picture or trackpad when the controller is off. On by default; the ⌘ button in the bar hides and shows it.
 - The keyboard button swaps the controller for the iPhone keyboard and back.
 - The old strip of arrow keys and space is gone: arrows come from the controller's bindings, space from the iPhone keyboard.
@@ -123,7 +123,7 @@ To test:
 2. Open Couchpad on the iPhone. It finds the Mac automatically and shows a pairing screen.
 3. Click the cursor icon in the Mac's menu bar → "Pairing code" and scan the QR with the Scan button (or type the 6 digits).
 4. Move a finger on the trackpad area: the Mac pointer moves. Tap the keyboard button in the bottom bar and type: text appears on the Mac. The key row above the bar holds esc, tab, fn, the modifiers and F1–F12.
-5. Tap the d-pad button in the bottom bar: the lower part of the screen becomes a controller (stick, A B X Y, seven keys). Move the stick: the Mac receives W/A/S/D key presses (FPS preset); press A: space. Bindings are in Settings → Controller → Bindings.
+5. Tap the d-pad button in the bottom bar: the lower part of the screen becomes a controller (stick, A B X Y, eight keys). Move the stick: the Mac receives W/A/S/D key presses (FPS preset); press A: space. Bindings are in Settings → Controller → Bindings.
 6. Optional: tap the display button in the bar to show the Mac's screen on the phone; the Mac asks for Screen Recording once.
 
 Without a companion, the app still launches and offers the setup guide and gesture reference; it cannot do more by nature, as with the other apps in this category.
@@ -157,7 +157,7 @@ This build adds an on-screen game controller and replaces the old key strip with
 
 • Controller on/off: tap the d-pad button in the bar. Upright, does the controller take the bottom half with the picture or trackpad above it? Sideways, a short band under the picture? Half-open iPhone Duo: picture on one half, controller on the other?
 • Stick: move in all eight directions; diagonals should press two keys (WASD in the FPS preset). Does the knob follow your thumb, and does the direction change feel right (a tick each change)?
-• Buttons: hold A B X Y and the seven keys around them; slide a finger from one key to the next (the first releases, the next presses). Press the stick and a button at the same time.
+• Buttons: hold A B X Y and the eight keys around them; slide a finger from one key to the next (the first releases, the next presses). Press the stick and a button at the same time.
 • Bindings: Settings → Controller → Bindings. Switch presets (FPS, MapleStory, Arrows) and change one key; each on-screen key should show its new binding right away.
 • Key row: the F1–F12 bar plus esc, tab, fn and the modifiers are above the controller (or under the picture with the controller off), on by default; the ⌘ button in the bar hides and shows them. Hold shift and press a key; tap Release. Open F1–F12 and back.
 • Keyboard: tap the keyboard button in the bar. The controller should give way to the iPhone keyboard with the key row (when on) above it, and come back when you hide the keyboard. Type a sentence.

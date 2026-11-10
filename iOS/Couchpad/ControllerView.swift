@@ -2,17 +2,17 @@ import SwiftUI
 import UIKit
 
 /// The on-screen controller, in the key row's style: a stick fixed on the left,
-/// the face buttons in a diamond on the right, and seven programmable keys (the pad's
-/// bumpers, triggers, stick click and menu, each showing its binding). Tall, it is laid
+/// the face buttons in a diamond on the right, and eight programmable keys (the pad's
+/// bumpers, triggers, stick clicks and menu, each showing its binding). Tall, it is laid
 /// out like a hand-held console under its screen: the strip's F bar and key row, when
 /// shown (the bar's ⌘ button), at the top, then the shoulder keys (L2 and L1, R1 and R2)
-/// in a row over the stick and the diamond, and L3, menu and opt grouped in the middle
-/// under them. Wide, everything sits in one short band: stick, keys, diamond, with the strip
+/// in a row over the stick and the diamond, and L3, menu, opt and R3 grouped in the
+/// middle under them. Wide, everything sits in one short band: stick, keys, diamond, with the strip
 /// over the keys. As an overlay (sideways, `AppSettings.padOverlay`) the pad is drawn
 /// translucent over the trackpad or picture instead (as solid as
 /// `AppSettings.overlayOpacity`) and laid out like a controller: stick and diamond near its
 /// bottom corners with the shoulder keys above them, the strip (when shown) on the bottom
-/// line between them, and L3, menu and opt grouped over the strip.
+/// line between them, and L3, menu, opt and R3 grouped over the strip.
 /// Every control reports to `ControllerBridge`, so the profile that drives a physical pad
 /// drives this one. The keys share the strip's multi-touch overlay, so a finger sliding
 /// from one to the next releases the first and presses the next.
@@ -38,7 +38,6 @@ struct ControllerView: View {
     var padHidden = false
     /// The strip's F bar and key row (`AppSettings.showKeyRow`, the bar's ⌘ button).
     var showKeys = true
-    @State private var keyFrames: [Int: CGRect] = [:]
     @State private var pressedCodes = Set<Int>()
     @State private var showF = false
     /// The strip is a different view in the pad and while typing; this ties the two, so when
@@ -47,8 +46,9 @@ struct ControllerView: View {
     @Namespace private var stripSpace
 
     private let gap: CGFloat = 4
-    /// The programmable row: labelled by what they do, tagged with the pad control they are.
-    static let topRow: [(Control, String)] = [(.l1, "L1"), (.l2, "L2"), (.l3, "L3"), (.menu, "menu"), (.options, "opt"), (.r1, "R1"), (.r2, "R2")]
+    /// The eight programmable keys, in the band's row order: labelled by what they do,
+    /// tagged with the pad control they are.
+    static let topRow: [(Control, String)] = [(.l1, "L1"), (.l2, "L2"), (.l3, "L3"), (.menu, "menu"), (.options, "opt"), (.r3, "R3"), (.r1, "R1"), (.r2, "R2")]
     /// Every key on the pad, with the synthetic code the touch overlay tracks it by.
     private static let padKeys: [(Control, Key)] = {
         let controls: [Control] = topRow.map(\.0) + [.y, .x, .b, .a]
@@ -94,11 +94,15 @@ struct ControllerView: View {
             .coordinateSpace(name: "pad")
             // The strip inside reports its keys through the same preference; its frames are in
             // its own space and must not become regions this overlay claims (they landed on
-            // the strip upright and on the stick sideways, swallowing both).
-            .onPreferenceChange(KeyFramesKey.self) { keyFrames = $0.filter { ControllerView.keyByCode[$0.key] != nil } }
-            .overlay(KeyTouchOverlay(frames: keyFrames, keys: ControllerView.keyByCode,
-                                     onPress: { press($0, true) }, onRelease: { press($0, false) },
-                                     onPressedChange: { pressedCodes = $0 }))
+            // the strip upright and on the stick sideways, swallowing both). Read straight
+            // into the overlay rather than through state: copied by `onPreferenceChange`, the
+            // last value at launch upright with the key row on held only the strip's keys, so
+            // no pad key took a touch until the next rotation.
+            .overlayPreferenceValue(KeyFramesKey.self) { frames in
+                KeyTouchOverlay(frames: frames.filter { ControllerView.keyByCode[$0.key] != nil }, keys: ControllerView.keyByCode,
+                                onPress: { press($0, true) }, onRelease: { press($0, false) },
+                                onPressedChange: { pressedCodes = $0 })
+            }
         }
         .frame(height: overlay ? nil : rowHeight.map { blockHeight(rowHeight: $0) })
     }
@@ -121,8 +125,8 @@ struct ControllerView: View {
     /// key row when shown (the bar's ⌘ button), right under the picture or trackpad; the
     /// shoulder keys (L2 and L1 over the stick, R1 and R2 over the diamond, on one line, all
     /// four the same size); the stick and the diamond, a little further apart than they are
-    /// from the sides; and the centre keys (L3, menu and opt, grouped in the middle like
-    /// select and start), a quarter row up from the bottom. All at one row height. Opening
+    /// from the sides; and the centre keys (L3, menu, opt and R3, grouped in the middle
+    /// like select and start), a quarter row up from the bottom. All at one row height. Opening
     /// F1–F12 gives the two F rows the key row's and the shoulder keys' rows, so nothing
     /// else moves. Filling (upright, the pad's half of the window, or the flat half of a
     /// half-open Duo) the rows are key-shaped and about a seventh of the height each; the
@@ -150,20 +154,23 @@ struct ControllerView: View {
         // tapped: the pad is then shorter than its room and sits in the middle of it.
         let above = row * 2 + gap * 2 + foot + strip + row
         let cluster = fill ? max(row * 3 + gap * 2, size.height - above) : row * 3 + gap * 2
-        // Across, the air left of the stick and right of the diamond is the same, and the
-        // air between the two is twice that, at least `minAir` at the sides.
+        // Across, the stick is centred on the pad's left quarter line and the diamond on its
+        // right one, so the two mirror each other about the middle, each at least `minAir`
+        // off its side (with equal widths, the air between them is twice the air outside).
         let minAir: CGFloat = 10
+        let half = size.width / 2
         let diamondWidth = unit * 3 + gap * 2
         let stick = fill
-            ? max(0, min(cluster, size.width - diamondWidth - 4 * minAir))
+            ? max(0, min(cluster, size.width - diamondWidth - 4 * minAir, half - 2 * minAir))
             : unit * 3 + gap * 2
-        let side = max(0, (size.width - stick - diamondWidth) / 4)
         // The face buttons as wide as the strip's keys, smaller only if the diamond would not
-        // leave a little air above and below it in its room.
-        let face = max(0, min(unit, (cluster - gap * 1.2) / 2.4))
+        // leave a little air above and below it in its room, or come nearer its side than
+        // `minAir`.
+        let face = max(0, min(unit, (cluster - gap * 1.2) / 2.4, (half - 2 * minAir - gap * 2) / 3))
+        let diamondSeen = face * 3 + gap * 2   // the diamond's own width, X's edge to B's
         // Shoulder and centre keys: key-shaped, at most 1.7 rows wide, and each pair no
         // wider than the stick or the diamond under it.
-        let wideKey = max(0, min(row * 1.7, (min(stick, diamondWidth) - gap) / 2))
+        let wideKey = max(0, min(row * 1.7, (min(stick, diamondSeen) - gap) / 2, (size.width - gap * 3) / 4))
         // Filling with the key row off, the height the strip leaves: three tenths of it over
         // the shoulder keys, the rest shared above and below the stick and the diamond, so
         // the centre keys stay put and nothing looks cramped.
@@ -179,29 +186,29 @@ struct ControllerView: View {
                         .padding(.bottom, showF ? blockGap - gap : 0)
                 }
                 if !(showKeys && showF) {
-                    HStack(spacing: side * 2) {
+                    // Each pair centred over its cluster: in the middle of its half.
+                    HStack(spacing: 0) {
                         HStack(spacing: gap) {
                             key(.l2, tag: "L2").frame(width: wideKey, height: row)
                             key(.l1, tag: "L1").frame(width: wideKey, height: row)
                         }
-                        .frame(width: stick)
+                        .frame(width: half)
                         HStack(spacing: gap) {
                             key(.r1, tag: "R1").frame(width: wideKey, height: row)
                             key(.r2, tag: "R2").frame(width: wideKey, height: row)
                         }
-                        .frame(width: diamondWidth)
+                        .frame(width: half)
                     }
-                    .padding(.horizontal, side)
                     .padding(.top, showKeys ? blockGap : freed * 0.3)
                     .padding(.bottom, spread)
                 }
             }
-            HStack(spacing: side * 2) {
+            HStack(spacing: 0) {
                 VirtualStick(controller: controller)
                     .frame(width: stick, height: fill ? stick : cluster)
-                diamond(unit: unit, row: face).frame(width: diamondWidth)
+                    .frame(width: half)
+                diamond(unit: unit, row: face).frame(width: half)
             }
-            .padding(.horizontal, side)
             .frame(height: cluster)
             centreKeys(width: wideKey, height: row)
                 .padding(.top, spread)
@@ -213,19 +220,19 @@ struct ControllerView: View {
     /// sit on the pad's bottom edge, against the bar.
     private func tallFoot(_ row: CGFloat) -> CGFloat { row * 0.25 }
 
-    /// One band: stick, a middle column (the seven programmable keys, with the strip's F
-    /// bar and key row over them when shown; the F rows take both rows when opened),
-    /// diamond.
+    /// One band: stick, a middle column (the eight programmable keys, with the strip's F
+    /// bar and key row over them when shown, both rows the column's full width though the
+    /// strip has seven columns; the F rows take both rows when opened), diamond.
     private func wideBody(_ size: CGSize) -> some View {
         // The stick's and the diamond's squares. Given a row height, three rows; filling,
-        // as tall as the room allows but never so wide that the seven keys between them
+        // as tall as the room allows but never so wide that the eight keys between them
         // drop under 44pt (the band used to be the room's full height, which on a wide,
         // short half pushed the diamond off the edge and crushed the middle to nothing).
         let band: CGFloat
         let faceUnit: CGFloat   // a face button's width
         let row: CGFloat        // and its height
         let edge: CGFloat       // air outside the stick and the diamond, off the band's ends
-        let keysWidth = 7 * 44 + 6 * gap   // the seven keys, none under 44pt
+        let keysWidth = 8 * 44 + 7 * gap   // the eight keys, none under 44pt
         if let rowHeight {
             // The band is 10% taller than three rows so the stick (the band's full height)
             // grows with it; the face buttons are 10% bigger than a row plus 5pt (the
@@ -248,7 +255,7 @@ struct ControllerView: View {
             ? gap
             : max(gap, min(16, (size.width - band - diamondWidth - edge * 2 - keysWidth) / 2))
         let middle = size.width - band - diamondWidth - inner * 2 - edge * 2
-        let unit = (middle - gap * 6) / 7
+        let unit = (middle - gap * 7) / 8   // a programmable key's width
         // With the strip: bar + gap + two key rows + gap fill the band exactly (filling, up
         // to key shape). Without it, the programmable keys stay key-shaped, centred in the band.
         let stripRow = (band - barHeight - 2 * gap) / 2
@@ -280,24 +287,27 @@ struct ControllerView: View {
     }
 
     /// Over the trackpad or picture, like touch controls over a game, laid out like a
-    /// controller: the stick in the bottom-leading corner, 40pt in from the pane's side and
-    /// 32pt up from its bottom, and the diamond as far in from the other side, centred on the
-    /// stick's height so the two share a centre line. The shoulder keys sit in two rows level
-    /// with each other, just above the stick's top: L2 outside and L1 inside over the stick,
-    /// R1 inside and R2 outside centred over the diamond, all four the same size (each pair
-    /// as wide as the stick). Between the stick and the diamond, on the pane's bottom line,
-    /// the strip (when the key row is on, ⌘): seven columns wide, at the keys' row height,
-    /// as translucent as them. Right over it, centred on it, the centre keys: L3, menu and
-    /// opt side by side, like select and start, each the size of a shoulder key (narrower
-    /// only where three of those would be wider than the strip).
+    /// controller: the stick in the bottom-leading corner, 32pt up from the pane's bottom,
+    /// and the diamond in the bottom-trailing one, centred on the stick's height so the two
+    /// share a centre line. The two mirror each other: their centres are as far from their
+    /// sides, 40pt plus a quarter of both their widths (the diamond is the wider, so it
+    /// reaches a little nearer its side and the middle than the stick). The shoulder keys
+    /// sit in two rows level with each other, just above the stick's top: L2 outside and L1
+    /// inside over the stick, R1 inside and R2 outside centred over the diamond, all four
+    /// the same size (each pair as wide as the stick). On the pane's bottom line, centred on
+    /// its middle with at least 16pt to the diamond, the strip (when the key row is on, ⌘):
+    /// seven columns wide, at the keys' row height, as translucent as them. Right over it,
+    /// centred on it, the centre keys: L3, menu, opt and R3 side by side, like select and
+    /// start, each the size of a shoulder key (narrower only where four of those would be
+    /// wider than the strip).
     /// Opening F1–F12 grows the strip to its two F rows and the centre keys ride up over
     /// them; with the key row off the centre keys sit on the bottom line themselves.
     /// Sized from the pane's width (the height only caps it, on a pane far shorter than a
     /// phone's), and the pane keeps its height whether or not the strip is shown, so ⌘ only
     /// adds or removes the strip: the stick a little bigger than the band's, the face
-    /// buttons and the keys in proportion to it. Where the seven columns between the stick
-    /// and the diamond would come out under 36pt, the two first give back their move in
-    /// from the sides (down to 24pt), then some of their size (down to 18% of the width).
+    /// buttons and the keys in proportion to it. Where the seven columns would come out
+    /// under 36pt, the stick and the diamond first give back their move in from the sides
+    /// (down to 24pt), then some of their size (down to 18% of the width).
     /// Only the controls take touches: no container here has a background, a content shape
     /// or a gesture, the strip's F bar is a button the size of the bar, and both touch
     /// overlays claim only their key frames, so every touch that misses a control (the gaps
@@ -311,17 +321,19 @@ struct ControllerView: View {
         let air: CGFloat = 16           // at least, between the keys and the stick or the diamond
         let shoulderGap: CGFloat = 10   // between a cluster and its shoulder keys
         let minUnit: CGFloat = 36       // the seven columns' narrowest
-        // The room between the stick and the diamond, as wide as `edge` and `stick` leave
-        // it: the diamond is 1.08 sticks and two gaps wide (see `face`).
+        // The room for the strip, centred on the pane, as wide as `edge` and `stick` leave
+        // it. The diamond is 1.08 sticks and two gaps wide (see `face`); the two centres are
+        // `edge` plus a quarter of both widths from their sides, so the diamond's inner edge,
+        // the nearer of the two to the middle, is `edge` + 1.06 sticks + 3 gaps from its side.
         func room(edge: CGFloat, stick: CGFloat) -> CGFloat {
-            size.width - edge * 2 - stick * 2.08 - gap * 2 - air * 2
+            size.width - edge * 2 - stick * 2.12 - gap * 3 - air * 2
         }
         let need = minUnit * 7 + gap * 6
         // About a tenth bigger than the band's stick, and no smaller than it.
         let fullStick = max(0, min(size.width * 0.20, size.height * 0.6))
         let leastStick = max(0, min(size.width * 0.18, size.height * 0.6))
         let edge = max(24, min(40, (room(edge: 0, stick: fullStick) - need) / 2))   // off the pane's sides
-        let stick = max(leastStick, min(fullStick, (room(edge: edge, stick: 0) - need) / 2.08))
+        let stick = max(leastStick, min(fullStick, (room(edge: edge, stick: 0) - need) / 2.12))
         let face = stick * 0.36         // a face button's diameter
         let diamondWidth = face * 3 + gap * 2
         let diamondHeight = face + 2 * diamondLift(face)
@@ -329,14 +341,20 @@ struct ControllerView: View {
         // Key-shaped: as wide as the room allows, but never wider than 1.5 heights.
         let unit = max(0, min(keyRow * 1.5, (room(edge: edge, stick: stick) - gap * 6) / 7))
         let columns = unit * 7 + gap * 6
-        let middle = edge + stick + (size.width - edge * 2 - stick - diamondWidth - columns) / 2
-        let trailing = size.width - edge - diamondWidth   // the diamond's leading side
+        // The stick's and the diamond's centres, the same distance from their sides, so the
+        // two mirror each other about the pane's middle: the stick a quarter of the
+        // difference in their widths further in than `edge` would put it, the diamond as
+        // much further out.
+        let inset = edge + (stick + diamondWidth) / 4
+        let leading = inset - stick / 2                              // the stick's leading side
+        let trailing = size.width - inset - diamondWidth / 2         // the diamond's leading side
+        let middle = (size.width - columns) / 2                      // the strip's, centred
         let shoulder = max(0, (stick - gap) / 2)   // a shoulder key's width
         let diamondBottom = padBottom + (stick - diamondHeight) / 2   // centred on the stick
         let shoulderBottom = padBottom + stick + shoulderGap        // both rows, over the stick's top
-        // The centre keys are the shoulder keys' size, unless three of them would be wider
+        // The centre keys are the shoulder keys' size, unless four of them would be wider
         // than the strip.
-        let centre = max(0, min(shoulder, (columns - gap * 2) / 3))
+        let centre = max(0, min(shoulder, (columns - gap * 3) / 4))
         // Each part is placed from the pane's bottom-leading corner. With the pad off
         // (`padHidden`) only the strip is drawn, where it sits with the pad.
         return ZStack(alignment: .bottomLeading) {
@@ -344,13 +362,13 @@ struct ControllerView: View {
                 VirtualStick(controller: controller)
                     .frame(width: stick, height: stick)
                     .background(Circle().fill(Color.black.opacity(0.4 * overlayOpacity)).allowsHitTesting(false))
-                    .padding(.leading, edge)
+                    .padding(.leading, leading)
                     .padding(.bottom, padBottom)
                 HStack(spacing: gap) {
                     key(.l2, tag: "L2").frame(width: shoulder, height: keyRow)
                     key(.l1, tag: "L1").frame(width: shoulder, height: keyRow)
                 }
-                .padding(.leading, edge)
+                .padding(.leading, leading)
                 .padding(.bottom, shoulderBottom)
                 diamond(unit: face, row: face)
                     .frame(width: diamondWidth, height: diamondHeight)
@@ -382,13 +400,14 @@ struct ControllerView: View {
         .frame(width: size.width, height: size.height, alignment: .bottomLeading)
     }
 
-    /// L3, menu and opt side by side, `gap` apart, each `width` by `height`: the centre
-    /// group, like a hand-held's select and start.
+    /// L3, menu, opt and R3 side by side, `gap` apart, each `width` by `height`: the centre
+    /// group, like a hand-held's select and start, each stick's click on its own side.
     private func centreKeys(width: CGFloat, height: CGFloat) -> some View {
         HStack(spacing: gap) {
             key(.l3, tag: "L3").frame(width: width, height: height)
             key(.menu, tag: "menu").frame(width: width, height: height)
             key(.options, tag: "opt").frame(width: width, height: height)
+            key(.r3, tag: "R3").frame(width: width, height: height)
         }
     }
 
