@@ -7,7 +7,7 @@ import UIKit
 /// With the picture underneath, a pinch zooms it (moving the pinch looks around; pinching
 /// back out resets), reported through `onZoom` so the picture can follow. The picture's
 /// place comes from `ScreenGeometry`, shared with ScreenView: zoomed in it grows into the
-/// trackpad around it, and sideways with the keyboard up it keeps its keyboard-down size
+/// trackpad around it, and with the keyboard up it keeps its keyboard-down size
 /// (`restingHeight`), taller than the pane, so moving a pinch looks around it even at 1×.
 struct TrackpadView: UIViewRepresentable {
     let client: Client
@@ -17,8 +17,10 @@ struct TrackpadView: UIViewRepresentable {
     var videoSize = CGSize.zero
     /// Size of the picture underneath, whether or not touches point at it; .zero without one.
     var pictureSize = CGSize.zero
-    /// The pane's height with the keyboard down, or 0; see `ScreenGeometry.pushed`.
+    /// The pane's height with the keyboard down, or 0, and whether the keyboard is up; see
+    /// `ScreenGeometry.KeyboardPush`.
     var restingHeight: CGFloat = 0
+    var keyboardUp = false
     var onZoom: ((CGFloat, CGPoint) -> Void)?
 
     func makeUIView(context: Context) -> TrackpadUIView {
@@ -33,8 +35,12 @@ struct TrackpadView: UIViewRepresentable {
         uiView.pictureSize = pictureSize
         uiView.onZoom = onZoom
         if pictureSize == .zero { uiView.resetZoom() }   // the picture went away; the next one starts at 1×
-        if uiView.restingHeight != restingHeight {
-            uiView.restingHeight = restingHeight
+        var push = uiView.push
+        push.resting = restingHeight
+        push.keyboardUp = keyboardUp
+        push.settle(pane: uiView.bounds.size)
+        if push != uiView.push {
+            uiView.push = push
             uiView.setNeedsLayout()
         }
     }
@@ -60,12 +66,12 @@ final class TrackpadUIView: UIView {
     private var pinchCentroid = CGPoint.zero
     private var pendingScroll = CGPoint.zero
 
-    var restingHeight: CGFloat = 0
+    var push = ScreenGeometry.KeyboardPush()
     private var zoomReportPending = false
 
     /// Where a picture of `size` sits inside this view at 1×.
     private func homeRect(_ size: CGSize) -> CGRect {
-        ScreenGeometry.home(for: size, in: bounds.size, pushed: ScreenGeometry.pushed(resting: restingHeight, pane: bounds.size))
+        ScreenGeometry.home(for: size, in: bounds.size, pushed: push.pushed(pane: bounds.size))
     }
 
     /// Where the picture is right now, zoom included, for mapping touches to it. The pan
@@ -76,7 +82,7 @@ final class TrackpadUIView: UIView {
         return ScreenGeometry.zoomed(home, zoom: zoom, pan: ScreenGeometry.clampedPan(pan, home: home, in: bounds.size, zoom: zoom))
     }
 
-    /// The pane changed shape, the keyboard sliding sideways among other things. At 1× the
+    /// The pane changed shape, the keyboard sliding among other things. At 1× the
     /// only pan there is, is a pushed picture's vertical one, and it is clamped as the pane
     /// grows back: with the keyboard down it is zero again, so the keyboard coming up always
     /// starts with the bottom of the picture showing, just above the bar. Zoomed in, the pan
@@ -85,6 +91,7 @@ final class TrackpadUIView: UIView {
     /// is told on the next turn of the run loop, once, however many steps the slide takes.
     override func layoutSubviews() {
         super.layoutSubviews()
+        push.settle(pane: bounds.size)
         guard zoom == 1, pan != .zero, pictureSize != .zero else { return }
         let clamped = ScreenGeometry.clampedPan(pan, home: homeRect(pictureSize), in: bounds.size, zoom: 1)
         guard clamped != pan else { return }

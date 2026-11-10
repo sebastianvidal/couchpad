@@ -148,15 +148,17 @@ struct ScreenHealth: Equatable {
 
 /// The picture, filling the trackpad's pane: placed and clipped by `ScreenGeometry`, so at
 /// 1× it is letterboxed as before, zoomed in it grows into the empty trackpad around it,
-/// and sideways with the keyboard up it keeps the size it has with the keyboard down
+/// and with the keyboard up it keeps the size it has with the keyboard down
 /// (`restingHeight`) and is pushed up, its top cut off by the pane. `zoom` and `pan` come
 /// from the trackpad's pinch (see TrackpadUIView), which works from the same geometry.
 struct ScreenView: UIViewRepresentable {
     @ObservedObject var receiver: ScreenReceiver
     var zoom: CGFloat = 1
     var pan = CGPoint.zero
-    /// The pane's height with the keyboard down, or 0; see `ScreenGeometry.pushed`.
+    /// The pane's height with the keyboard down, or 0, and whether the keyboard is up; see
+    /// `ScreenGeometry.KeyboardPush`.
     var restingHeight: CGFloat = 0
+    var keyboardUp = false
 
     func makeUIView(context: Context) -> ScreenUIView {
         let view = ScreenUIView()
@@ -169,7 +171,9 @@ struct ScreenView: UIViewRepresentable {
         uiView.zoom = zoom
         uiView.pan = pan
         uiView.videoSize = receiver.videoSize
-        uiView.restingHeight = restingHeight
+        uiView.push.resting = restingHeight
+        uiView.push.keyboardUp = keyboardUp
+        uiView.push.settle(pane: uiView.bounds.size)
         uiView.setNeedsLayout()
     }
 }
@@ -186,7 +190,7 @@ final class ScreenUIView: UIView {
     var zoom: CGFloat = 1
     var pan = CGPoint.zero
     var videoSize = CGSize.zero
-    var restingHeight: CGFloat = 0
+    var push = ScreenGeometry.KeyboardPush()
     weak var videoLayer: CALayer?
     private let clipView = UIView()
 
@@ -222,7 +226,8 @@ final class ScreenUIView: UIView {
         super.layoutSubviews()
         claimVideoLayer()
         let pane = bounds.size
-        let home = ScreenGeometry.home(for: videoSize, in: pane, pushed: ScreenGeometry.pushed(resting: restingHeight, pane: pane))
+        push.settle(pane: pane)
+        let home = ScreenGeometry.home(for: videoSize, in: pane, pushed: push.pushed(pane: pane))
         let viewport = ScreenGeometry.viewport(home: home, in: pane, zoom: zoom)
         // Clamped here too: the trackpad keeps its pan as the fingers left it, and the pane
         // may have changed shape since (the keyboard, a rotation).
@@ -246,14 +251,60 @@ final class ScreenUIView: UIView {
 enum ScreenGeometry {
     static let maxZoom: CGFloat = 6
 
-    /// How far the keyboard pushes the picture: how much shorter the pane is than with the
-    /// keyboard down (`resting`, measured then; 0 where nothing is pushed). Sideways the
-    /// keyboard pushes the picture up instead of shrinking it. Read off the pane's current
-    /// height, so while the keyboard slides it follows the pane step by step and the
-    /// picture keeps its size. Under half a point is rounding, not a keyboard.
+    /// How much shorter the pane is than with the keyboard down (`resting`, measured then;
+    /// 0 where nothing is pushed). Read off the pane's current height, so while the keyboard
+    /// slides it follows the pane step by step and the picture keeps its size. Under half a
+    /// point is rounding, not a keyboard.
     static func pushed(resting: CGFloat, pane: CGSize) -> CGFloat {
         let pushed = resting - pane.height
         return pushed < 0.5 ? 0 : pushed
+    }
+
+    /// Whether the pane being shorter than at rest is the keyboard's doing, and so pushes
+    /// the picture up instead of shrinking it. The resting height is measured as soon as a
+    /// keyboard-down layout settles, while SwiftUI is still moving the views there a step
+    /// at a time: when the pane grows with the keyboard down (the pad band or the docked
+    /// key row going away), it is shorter than the new resting height for the whole slide,
+    /// and a push then would snap the picture to its final size at once, cut off at the top
+    /// until the pane caught up. So the push only holds while the keyboard is up, and after
+    /// it has gone until the pane is back at its resting height; otherwise the picture
+    /// follows the pane as it always did. ScreenUIView and TrackpadUIView each keep one and
+    /// settle it on the same inputs and bounds, so they agree.
+    struct KeyboardPush: Equatable {
+        var resting: CGFloat = 0
+        var keyboardUp = false
+        private(set) var holding = false
+
+        /// Called on every layout step and whenever the inputs change.
+        mutating func settle(pane: CGSize) {
+            if keyboardUp {
+                holding = true
+            } else if ScreenGeometry.pushed(resting: resting, pane: pane) == 0 {
+                holding = false
+            }
+        }
+
+        func pushed(pane: CGSize) -> CGFloat {
+            holding ? ScreenGeometry.pushed(resting: resting, pane: pane) : 0
+        }
+    }
+
+    /// Whether `request` (in pixels) needs no more of the stream than `last` already gives:
+    /// the picture of `video`'s shape the host would fit into it is no bigger, to within 1%
+    /// on each side, than the one it fits into `last`. A smaller or equal picture is served
+    /// well enough by the stream there is (scaled down on the phone), and asking for it
+    /// would only restart the stream. With no picture yet the shape is unknown and the
+    /// boxes themselves are compared, which is safe: a box no bigger than the last one can
+    /// never need a bigger picture.
+    static func needsNoMore(_ video: CGSize, in request: CGSize, than last: CGSize) -> Bool {
+        guard request.width > 0, request.height > 0, last.width > 0, last.height > 0 else { return false }
+        func fit(_ box: CGSize) -> CGSize {
+            guard video.width > 0, video.height > 0 else { return box }
+            let scale = min(box.width / video.width, box.height / video.height)
+            return CGSize(width: video.width * scale, height: video.height * scale)
+        }
+        let wanted = fit(request), given = fit(last)
+        return wanted.width <= given.width * 1.01 && wanted.height <= given.height * 1.01
     }
 
     /// The picture at 1×: aspect-fitted into the pane as if the pane were `pushed` points

@@ -76,6 +76,8 @@ remote,mouse,touchpad,wireless,mac,pc,windows,tv,couch,controller,gamepad,cursor
 - Pad over the picture: sideways, the on-screen controller and the key row can float translucent over the picture, which keeps the whole screen, like touch controls in a game. Turn it on in Settings; Overlay opacity sets how see-through they are.
 - The stick lights up the direction you're holding, a tap on the stick presses that way, and the face buttons are round.
 - More room around the stick and the buttons when sideways.
+- Typing with the picture on: the keyboard pushes the picture up instead of shrinking it, so it stays readable. Move a pinch to see the rest. Zoomed in, the picture fills the whole trackpad before it crops.
+- Switching between the pad and the keyboard no longer restarts the picture.
 
 ## What's New (1.2)
 
@@ -147,6 +149,7 @@ This build plays the Mac's sound with the picture and lets the controller float 
 • Sound and other apps: take a call or ask Siri something while it plays, then come back; the sound should resume. Leave the app: the sound should stop.
 • Pad over the picture: sideways, turn on Settings → Pad over the picture. The pad and key row should float over the picture, which keeps the full height. Try Overlay opacity from 0% to 100%: keys and their labels should fade together, with the labels still faintly visible at 0%, and a pressed key should always show solid. What setting do you end up using?
 • Stick: hold a direction; the slice of the ring under the knob should light up. Tap the stick on one side: it should press that way once.
+• Keyboard and zoom: with the picture on, bring up the keyboard, upright and sideways. The picture should keep its size and slide up, not shrink; move a pinch down to see its top. Switching between the pad and the keyboard should not make the picture blink or restart. Pinch to zoom: the picture should grow into the empty space beside it before it crops.
 
 ## TestFlight — What to Test (1.2)
 

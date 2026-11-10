@@ -7,16 +7,23 @@ struct ContentView: View {
     @StateObject private var controller = ControllerBridge()
     @StateObject private var screen = ScreenReceiver()
     /// Size of the trackpad area in pixels, which is the picture size we ask the host for.
-    /// Sideways with the keyboard up it is the pane's size with the keyboard down (see
-    /// `screenBody`), so the stream keeps its size.
+    /// With the picture on and the keyboard up it is the pane's size with the keyboard down
+    /// (see `screenBody`), so the stream keeps its size.
     @State private var trackpadPixels = CGSize.zero
-    /// The picture's pane's height sideways with the keyboard down, and the window it was
-    /// measured in: the keyboard pushes the picture up rather than shrinking it, and this is
-    /// the size it keeps (`ScreenGeometry.pushed`). Measured rather than worked out from
-    /// the keyboard's inset, because rows come and go with the keyboard too (the key row
-    /// docks above it in the overlay layout, the pad band goes).
+    /// The picture's pane's height with the keyboard down, and the window it was measured
+    /// in: the keyboard pushes the picture up rather than shrinking it, and this is the size
+    /// it keeps (`ScreenGeometry.KeyboardPush`). Measured rather than worked out from the
+    /// keyboard's height, because rows come and go with the keyboard too (the key row docks
+    /// above it in the overlay layout, the pad band goes, upright the pad gives way to it).
     @State private var restingPaneHeight: CGFloat = 0
     @State private var restingPaneWindow = CGSize.zero
+    /// The last `v 1` actually sent (width and height in pixels) and the window it was sent
+    /// in, so that a resize that needs no bigger picture asks for nothing (`syncScreen`).
+    /// In a box, like `resizeSettle`, so that remembering it is no state change.
+    @State private var lastScreenRequest = RequestBox()
+    /// The picture's pane's last measured size (`measurePane`).
+    @State private var paneSize = SizeBox()
+
     @State private var showSettings = false
     @State private var pairingCode = ""
     @AppStorage("hasSeenSetup") private var hasSeenSetup = false
@@ -73,11 +80,14 @@ struct ContentView: View {
         .padding(.horizontal, 8)
         .padding(.bottom, 8)
         // Keyboard avoidance is applied at the root, so it has to be switched off here:
-        // sideways and half open, nothing moves for the keyboard and every layout insets
-        // itself by hand instead (`keyboardInset`). Half open the keyboard is ignored
-        // whatever the state, so the switch is not made in the same instant the keyboard
-        // appears (which SwiftUI did not always honour).
-        .ignoresSafeArea(isLandscape || hingePartlyOpen ? .keyboard : [])
+        // nothing moves for the keyboard and every layout insets itself by hand instead
+        // (`keyboardInset`), inside the same animation as the rest of the layout, so the pad
+        // giving way and the bar riding up are one motion. Avoidance did it in a step of its
+        // own when the keyboard went: the layout dropped, then slid back as the pad grew.
+        // The keyboard is ignored whatever the state, so the switch is not made in the same
+        // instant the keyboard appears (which SwiftUI did not always honour); see
+        // `ignoresKeyboard` for where avoidance stays.
+        .ignoresSafeArea(ignoresKeyboard ? .keyboard : [])
         .ignoresSafeArea(.container, edges: panelEdges.union(isLandscape ? .bottom : []))
         // Sideways, the layout runs into the home indicator's strip rather than leaving a
         // blank band under it; the indicator fades out of the way (a swipe still brings it back).
@@ -239,7 +249,7 @@ struct ContentView: View {
             resizeSettle.task = Task {
                 try? await Task.sleep(for: .milliseconds(400))
                 guard !Task.isCancelled else { return }
-                syncScreen()
+                syncScreen(resized: true)
             }
         }
         .onChange(of: inputState.keyboardShown) { _, _ in keyboardToggledAt = Date() }
@@ -264,14 +274,45 @@ struct ContentView: View {
         screenOn && client.isConnected && hingePartlyOpen
     }
 
+    /// Whether the root ignores the keyboard and the layouts inset themselves for it
+    /// (`keyboardInset`). Always sideways and half open. Upright too, except in two cases
+    /// where keyboard avoidance stays, as it was before upright went by hand:
+    /// - the pairing prompt is showing: its code field brings up a number pad of its own,
+    ///   which `keyboardShown` knows nothing about, and avoidance keeps the field above it
+    ///   (the phase is entered long before that keyboard appears, so the switch is never
+    ///   made while a keyboard comes up);
+    /// - split view: iOS resizes the window around the keyboard (see the `windowSize`
+    ///   onChange), and avoidance inside the resized window is what was tested there.
+    /// Whether the window is the whole screen. In split view (another app above or below)
+    /// iOS resizes the window around the keyboard, and the layout leaves that to keyboard
+    /// avoidance upright, as it always has (`ignoresKeyboard`). Worked out when asked, not
+    /// kept as state: one more state change in the middle of a rotation is one more chance
+    /// for a stale layout step.
+    private var windowFillsScreen: Bool {
+        guard let screen = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first?.screen.bounds.size,
+              windowSize != .zero else { return true }
+        // Either way round: the screen's bounds turn with the interface, a moment apart.
+        let same = abs(screen.width - windowSize.width) < 1 && abs(screen.height - windowSize.height) < 1
+        let turned = abs(screen.width - windowSize.height) < 1 && abs(screen.height - windowSize.width) < 1
+        return same || turned
+    }
+
+    private var ignoresKeyboard: Bool {
+        if isLandscape || hingePartlyOpen { return true }
+        let pairing = client.phase == .needsCode || client.phase == .wrongCode
+        return windowFillsScreen && !pairing
+    }
+
     /// How far a layout ends above its bottom edge so its last row sits 8pt above the iOS
-    /// keyboard. Only where the root ignores the keyboard (sideways, half open); elsewhere
+    /// keyboard. Only where the root ignores the keyboard (`ignoresKeyboard`); elsewhere
     /// keyboard avoidance has already shrunk the layout. Half open upright, iOS reports the
     /// keyboard as the whole bottom segment (the keys sit inside it), so avoidance would
     /// leave a blank band above the keys: the inset goes to where the keys were measured
-    /// to start instead (`keyboardTops`).
+    /// to start instead (`keyboardTops`). Before the first measurement for a window size the
+    /// keyboard is taken to be 40% of the layout's height (about what it is upright and
+    /// sideways on the Duo), corrected as soon as iOS announces it.
     private func keyboardInset(_ geo: GeometryProxy) -> CGFloat {
-        guard inputState.keyboardShown, isLandscape || hingePartlyOpen else { return 0 }
+        guard inputState.keyboardShown, ignoresKeyboard else { return 0 }
         let bottom = geo.frame(in: .global).maxY
         let keyboardTop = keyboardTops[sizeKey] ?? (bottom - geo.size.height * 0.40)
         return max(0, bottom - keyboardTop + 8)   // 8pt of air above the keyboard, like every other gap
@@ -293,8 +334,16 @@ struct ContentView: View {
     /// connection, the setting or the trackpad's size changes; the host restarts the stream
     /// only when the size actually changed. The sound goes with the picture: every `v 1` is
     /// followed by the sound setting, and `v 0` (or no connection) stops it too.
-    private func syncScreen() {
+    /// `resized`: the pane settled at a new size in the same window (the pad, the key row
+    /// or the keyboard coming or going). Then nothing is sent unless the picture needs more
+    /// pixels than the last request gives, by more than 1%: the host fits its display into
+    /// the size asked for, and every new size is a stream restart (the picture stops, the
+    /// Mac's screen-sharing icon flickers). A pane that shrank keeps the bigger stream,
+    /// scaled down on the phone, until the next rotation, fold or reconnect asks for its
+    /// exact size; a new window always sends.
+    private func syncScreen(resized: Bool = false) {
         guard client.isConnected else {
+            lastScreenRequest.size = nil
             screen.reset()
             client.setSound(false)
             return
@@ -304,9 +353,19 @@ struct ContentView: View {
             // 60 fps: a change waits half as long for the next capture, and the phone's
             // display shows it on the next refresh. Bandwidth roughly doubles; still a few Mbps.
             let pixels = share * Double(screenZoom)
-            client.send("v 1 \(Int(trackpadPixels.width * pixels)) \(Int(trackpadPixels.height * pixels)) 60")
+            let request = CGSize(width: Int(trackpadPixels.width * pixels), height: Int(trackpadPixels.height * pixels))
+            // Compared with the last request sent, not the last one skipped, so small
+            // steps cannot add up to a picture that no longer fits.
+            if resized, let last = lastScreenRequest.size, lastScreenRequest.window == windowSize,
+               ScreenGeometry.needsNoMore(screen.videoSize, in: request, than: last) {
+                return
+            }
+            lastScreenRequest.size = request
+            lastScreenRequest.window = windowSize
+            client.send("v 1 \(Int(request.width)) \(Int(request.height)) 60")
             client.setSound(settings.screenSound)
         } else {
+            lastScreenRequest.size = nil
             client.send("v 0")
             client.setSound(false)
             screen.reset()
@@ -344,8 +403,9 @@ struct ContentView: View {
     /// bar's ⌘ button has it on), the bar, 6pt apart, so toggling the picture moves nothing.
     /// With the pad on, the pad (with the key row at its top) takes the bottom half instead.
     /// Arrows and space come from the pad's bindings or the iOS keyboard.
-    /// Half open (picture off), the root ignores the keyboard, so the layout ends above
-    /// it by hand (`keyboardInset`); elsewhere keyboard avoidance shrinks the trackpad.
+    /// The root ignores the keyboard (`ignoresKeyboard`), so the layout ends above it by
+    /// hand (`keyboardInset`) and the trackpad gives up the room; in split view and with the
+    /// pairing prompt up, keyboard avoidance shrinks it instead and the inset is zero.
     private var portraitBody: some View {
         GeometryReader { geo in
             let inset = keyboardInset(geo)
@@ -494,13 +554,15 @@ struct ContentView: View {
     // MARK: Screen layout
 
     /// With the Mac's picture on, the picture gets the whole window but the key row docked
-    /// under it (when on) and one slim bar; the iOS keyboard is summoned from the bar. Sideways, the
-    /// body ignores the keyboard (see `body`), so everything is inset by hand for the row
-    /// and the bar to sit just above it; otherwise keyboard avoidance at the root shrinks
-    /// the picture for us. Sideways the pane does get shorter, but the picture does not
-    /// shrink with it: it keeps its keyboard-down size and is pushed up (`keyboardPushes`),
-    /// its bottom just above the key row or bar and its top cut off, and moving a pinch looks
-    /// at the rest. Shrunk into the strip above the keyboard it was too small to read.
+    /// under it (when on) and one slim bar; the iOS keyboard is summoned from the bar. The
+    /// root ignores the keyboard upright too (`ignoresKeyboard`), so everything is inset by
+    /// hand for the row and the bar to sit just above it; in split view and while pairing,
+    /// keyboard avoidance at the root shrinks the layout instead. Either way the pane gets
+    /// shorter, but the picture does not shrink with it: it keeps its keyboard-down size and
+    /// is pushed up (`keyboardPushes`), its bottom just above the key row or bar and its top
+    /// cut off once the pane is shorter than it, and moving a pinch looks at the rest. Shrunk
+    /// into the strip above the keyboard it was too small to read, and every keyboard toggle
+    /// restarted the stream at a new size.
     private var screenBody: some View {
         GeometryReader { geo in
             let inset = keyboardInset(geo)
@@ -508,7 +570,7 @@ struct ContentView: View {
             VStack(spacing: 6) {
                 // Sideways with "Pad over the picture" on, the pad (and the key row with it)
                 // floats over the picture, which keeps the whole height (`padOverlaid`).
-                trackpadPane(picture: true, keyboardPushes: isLandscape).overlay { overlaidPad }
+                trackpadPane(picture: true, keyboardPushes: true, keyboardInset: inset).overlay { overlaidPad }
                 if padOnScreen {
                     // Otherwise the pad never floats over the picture: the picture gives up the
                     // room. Upright it takes the bottom half (a Game Boy); sideways, a short band under it.
@@ -708,41 +770,39 @@ struct ContentView: View {
     /// asks for it (the half-open layout shows a second, plain trackpad). The picture fills
     /// the pane and places itself (`ScreenGeometry`): letterboxed at 1×, growing into the
     /// pane as it is zoomed, so the pane's rounded shape is its outer clip. With
-    /// `keyboardPushes` (only `screenBody`, sideways) the pane's keyboard-down height is
-    /// measured (`restingPaneHeight`) and the picture keeps that size while the keyboard is up.
-    private func trackpadPane(picture: Bool, keyboardPushes: Bool = false) -> some View {
+    /// `keyboardPushes` (only `screenBody`) the pane's keyboard-down height is measured
+    /// (`restingPaneHeight`) and the picture keeps that size while the keyboard is up.
+    /// `keyboardInset` is what the layout takes off for the keyboard, for when there is no
+    /// measurement yet (see below).
+    private func trackpadPane(picture: Bool, keyboardPushes: Bool = false, keyboardInset: CGFloat = 0) -> some View {
         let showPicture = picture && screenOn && client.isConnected
         let resting = keyboardPushes && showPicture && restingPaneWindow == windowSize ? restingPaneHeight : 0
+        let keyboardDown = !inputState.keyboardShown
         return ZStack {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
             if showPicture {
-                ScreenView(receiver: screen, zoom: screenZoom, pan: screenPan, restingHeight: resting)
+                ScreenView(receiver: screen, zoom: screenZoom, pan: screenPan, restingHeight: resting, keyboardUp: !keyboardDown)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             TrackpadView(client: client, settings: settings, videoSize: showPicture && settings.tapToPoint ? screen.videoSize : .zero,
-                         pictureSize: showPicture ? screen.videoSize : .zero, restingHeight: resting,
+                         pictureSize: showPicture ? screen.videoSize : .zero, restingHeight: resting, keyboardUp: !keyboardDown,
                          onZoom: { zoom, pan in screenZoom = zoom; screenPan = pan })
-                .background(
-                    GeometryReader { geo in
-                        // The window and the layout too: rotated sideways, the pane can report
-                        // its size before `windowSize` (and so `keyboardPushes`) has caught up.
-                        Color.clear.onChange(of: PaneMeasure(size: geo.size, window: windowSize, keyboardPushes: keyboardPushes), initial: true) { _, measure in
-                            guard picture else { return }   // the stream is sized to the picture's pane
-                            let size = measure.size
-                            var height = size.height
-                            if keyboardPushes, !inputState.keyboardShown {
-                                if restingPaneHeight != size.height { restingPaneHeight = size.height }
-                                if restingPaneWindow != windowSize { restingPaneWindow = windowSize }
-                            } else if keyboardPushes, restingPaneWindow == windowSize {
-                                // The pane as it is without the keyboard, so the keyboard
-                                // coming up asks the host for nothing new.
-                                height = max(height, restingPaneHeight)
-                            }
-                            trackpadPixels = CGSize(width: size.width * displayScale, height: height * displayScale)
-                        }
-                    }
-                )
+                // The pane's size from `onGeometryChange`, which reports every change with
+                // the final value: an onChange on a GeometryReader's size was once handed a
+                // stale step of a rotation (366 pt wide, from before the status-bar panel was
+                // taken back) after the final one, and the stream was sized to it.
+                .onGeometryChange(for: CGSize.self, of: { $0.size }) { size in
+                    guard picture else { return }   // the stream is sized to the picture's pane
+                    paneSize.size = size
+                    measurePane(size, keyboardPushes: keyboardPushes, keyboardInset: keyboardInset)
+                }
+                // The window and the keyboard too: rotated, the pane can report its size
+                // before `windowSize` has caught up.
+                .onChange(of: PaneMeasure(window: windowSize, keyboardPushes: keyboardPushes, keyboardDown: keyboardDown)) { _, _ in
+                    guard picture, paneSize.size != .zero else { return }
+                    measurePane(paneSize.size, keyboardPushes: keyboardPushes, keyboardInset: keyboardInset)
+                }
             switch client.phase {
             case .paired where showPicture && screen.videoSize == .zero:
                 screenPlaceholder
@@ -777,6 +837,33 @@ struct ContentView: View {
         .frame(maxHeight: .infinity)
     }
 
+    /// Takes the picture's pane's size: the stream is sized to it (`trackpadPixels`), and with
+    /// `keyboardPushes` its keyboard-down height is remembered for the window
+    /// (`restingPaneHeight`) so the keyboard pushes the picture rather than shrinking it.
+    private func measurePane(_ size: CGSize, keyboardPushes: Bool, keyboardInset: CGFloat) {
+        var height = size.height
+        if keyboardPushes, !inputState.keyboardShown {
+            if restingPaneHeight != size.height { restingPaneHeight = size.height }
+            if restingPaneWindow != windowSize { restingPaneWindow = windowSize }
+        } else if keyboardPushes {
+            // The keyboard is up and this window has no keyboard-down measurement (the
+            // keyboard was up when the picture appeared, or came up again right after a
+            // rotation): the pane plus what the layout took off for the keyboard stands in for
+            // it. Off by whatever rows come and go with the keyboard, and replaced by the real
+            // thing when the keyboard next goes down; without it the picture would shrink above
+            // the keyboard and a keyboard-sized stream would be asked for.
+            if restingPaneWindow != windowSize {
+                restingPaneHeight = size.height + keyboardInset
+                restingPaneWindow = windowSize
+            }
+            // The pane as it is without the keyboard, so the keyboard coming up asks the host
+            // for nothing new.
+            height = max(height, restingPaneHeight)
+        }
+        let pixels = CGSize(width: size.width * displayScale, height: height * displayScale)
+        if trackpadPixels != pixels { trackpadPixels = pixels }
+    }
+
     /// What to say while the picture is wanted but not arriving.
     private var screenPlaceholder: some View {
         VStack(spacing: 8) {
@@ -785,7 +872,7 @@ struct ContentView: View {
                 Text("Allow Screen Recording for Couchpad on \(client.macName)\n(System Settings → Privacy & Security), then try again.")
                     .multilineTextAlignment(.center)
                     .font(.footnote)
-                Button("Try again") { client.send("v 0"); syncScreen() }
+                Button("Try again") { lastScreenRequest.size = nil; client.send("v 0"); syncScreen() }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
             } else if let message = screen.hostMessage, message.hasPrefix("error") {
@@ -913,7 +1000,7 @@ struct ContentView: View {
                     Toggle("Touch the picture to point there", isOn: $settings.tapToPoint)
                     Text("The pointer jumps to where your finger is, so a tap clicks what is under it. Off, a swipe moves the pointer and a tap clicks where it is.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Text("Pinch the picture to zoom in (it fills the trackpad first), move the pinch to look around, pinch back out to reset. Sideways, the keyboard pushes the picture up rather than shrinking it: move a pinch down to see its top.")
+                    Text("Pinch the picture to zoom in (it fills the trackpad first), move the pinch to look around, pinch back out to reset. The keyboard pushes the picture up rather than shrinking it: move a pinch down to see its top.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Controller") {
@@ -1005,9 +1092,20 @@ struct HoldButton: View {
 
 /// What the picture's pane measures itself for (see `trackpadPane`).
 private struct PaneMeasure: Equatable {
-    var size: CGSize
     var window: CGSize
     var keyboardPushes: Bool
+    var keyboardDown: Bool
+}
+
+/// The picture's pane's last size, held by reference like `TaskBox`.
+private final class SizeBox {
+    var size = CGSize.zero
+}
+
+/// The last stream size asked for, held by reference like `TaskBox`.
+private final class RequestBox {
+    var size: CGSize?
+    var window = CGSize.zero
 }
 
 /// A pending task held by reference, so replacing it does not count as a state change.
