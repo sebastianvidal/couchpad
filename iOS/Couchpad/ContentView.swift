@@ -26,6 +26,9 @@ struct ContentView: View {
 
     @State private var showSettings = false
     @State private var pairingCode = ""
+    /// Settings → Connection → "Add a computer by address…".
+    @State private var showAddAddress = false
+    @State private var newAddress = ""
     @AppStorage("hasSeenSetup") private var hasSeenSetup = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.displayScale) private var displayScale
@@ -624,10 +627,28 @@ struct ContentView: View {
                               systemImage: settings.screenSound ? "speaker.slash" : "speaker.wave.2")
                     }
                 }
-                ForEach(client.services) { service in
-                    Button(service.name) { client.connect(to: service) }
+                // The drop-down of saved computers: picking one connects to it, and only to it.
+                if !client.devices.isEmpty {
+                    Picker("Computer", selection: Binding(
+                        get: { client.currentDeviceID },
+                        set: { if let id = $0 { client.select(id) } }
+                    )) {
+                        ForEach(client.devices) { device in
+                            Text(device.displayName).tag(Optional(device.id))
+                        }
+                    }
+                    .pickerStyle(.inline)
                 }
-                if client.services.isEmpty { Text("No Macs found yet") }
+                // Computers on the network this phone hasn't paired with: one tap to pair.
+                let nearby = client.nearbyServices
+                if !nearby.isEmpty {
+                    Section("Nearby") {
+                        ForEach(nearby) { service in
+                            Button(service.name) { client.connect(to: service) }
+                        }
+                    }
+                }
+                if client.devices.isEmpty, nearby.isEmpty { Text("No computers found yet") }
                 if let name = controller.controllerName {
                     Label(name, systemImage: "gamecontroller.fill")
                 }
@@ -818,7 +839,11 @@ struct ContentView: View {
             default:
                 VStack(spacing: 10) {
                     Image(systemName: "wifi.exclamationmark").font(.title2)
-                    Text("Open Couchpad on your Mac or PC\n(same Wi-Fi)")
+                    // With a saved computer selected, the question is where it is: not on
+                    // this network, and (if it has no address) nothing else to try.
+                    Text(client.currentDeviceID == nil || client.macName.isEmpty
+                         ? "Open Couchpad on your Mac or PC\n(same Wi-Fi)"
+                         : "Can't find \(client.macName). Is Couchpad open on it?\nAway from home, give it its VPN address in Settings → Connection.")
                         .multilineTextAlignment(.center)
                         .font(.footnote)
                     // Side by side where they fit (portrait), stacked on a narrow trackpad
@@ -921,6 +946,20 @@ struct ContentView: View {
                 .disabled(pairingCode.count < 6)
             Button("Scan QR code instead", systemImage: "qrcode.viewfinder") { showScanner = true }
                 .font(.footnote)
+            // The prompt stays up through reconnects; this says when the computer has gone
+            // (quit, asleep, off the network) and a code typed now would go nowhere.
+            if client.unreachable {
+                Text(client.status)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            if client.phase == .needsCode, let note = client.pairingNote {
+                Text(note)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+            }
             if client.phase == .wrongCode {
                 Text("That code didn't match or has expired. Open the pairing window on the computer for a fresh one.")
                     .font(.footnote)
@@ -1029,23 +1068,35 @@ struct ContentView: View {
                     }
                 }
                 Section("Connection") {
-                    ForEach(client.services) { service in
-                        Button(service.name) { client.connect(to: service); showSettings = false }
-                    }
-                    HStack {
-                        TextField("Computer IP (if discovery fails)", text: $settings.manualHost)
-                            .keyboardType(.numbersAndPunctuation)
-                            .autocorrectionDisabled()
-                        Button("Connect") { client.connect(host: settings.manualHost); showSettings = false }
-                            .disabled(settings.manualHost.isEmpty)
-                    }
-                    Text(client.status).font(.footnote).foregroundStyle(.secondary)
-                    if client.isConnected {
-                        Button("Forget \(client.macName)", role: .destructive) {
-                            client.forgetMac()
-                            showSettings = false
+                    // Saved computers, each with its profile (name, VPN address, forget).
+                    ForEach(client.devices) { device in
+                        NavigationLink {
+                            DeviceView(client: client, id: device.id) { showSettings = false }
+                        } label: {
+                            HStack {
+                                Text(device.displayName)
+                                Spacer()
+                                if device.id == client.currentDeviceID {
+                                    Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
+                                        .accessibilityLabel("Selected")
+                                }
+                            }
                         }
                     }
+                    ForEach(client.nearbyServices) { service in
+                        Button { client.connect(to: service); showSettings = false } label: {
+                            HStack {
+                                Text(service.name)
+                                Spacer()
+                                Text("Nearby, pair").font(.footnote).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    Button("Add a computer by address…") {
+                        newAddress = ""
+                        showAddAddress = true
+                    }
+                    Text(client.status).font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("About") {
                     Button("Setup guide & gestures") { showSettings = false; showSetup = true }
@@ -1058,6 +1109,20 @@ struct ContentView: View {
             }
             .navigationTitle("Settings")
             .toolbar { Button("Done") { showSettings = false } }
+            // On the form, not the section: a section hands its modifiers to every row.
+            .alert("Add a computer by address", isPresented: $showAddAddress) {
+                TextField("100.101.102.103", text: $newAddress)
+                    .keyboardType(.numbersAndPunctuation)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("Cancel", role: .cancel) {}
+                Button("Connect") {
+                    if client.connect(address: newAddress) { showSettings = false }
+                }
+                .disabled(HostAddress(newAddress) == nil)
+            } message: {
+                Text("Its IP address or host name, with :port at the end if it isn't the usual one. For a computer on a VPN (Tailscale, WireGuard) or where the local network doesn't find it. If it's already paired, add the address to its profile above instead.")
+            }
         }
     }
 }

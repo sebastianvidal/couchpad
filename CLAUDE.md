@@ -39,7 +39,19 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
 - Local Mac builds sign with the Apple Development cert so Accessibility trust survives
   rebuilds; release builds use Developer ID.
 - Arrow-key events must carry the Fn + keypad flags or macOS hotkeys (Mission Control) ignore them.
-- Hosts must ignore lines that arrive before `hello`; answering `nope` makes the phone drop its token.
+- Hosts must ignore lines that arrive before `hello`, never answer them `nope`: a `nope` to a
+  token puts the phone on the pairing prompt for that device (it keeps the token, in case
+  this was the wrong host, until a code pairing replaces it; foreground or reselect retries it).
+- Phone device profiles (`iOS/Couchpad/Devices.swift`): JSON array in UserDefaults `devices`,
+  selection `selectedDevice`; one token per computer serves every route. The app connects
+  only to the selected device: Bonjour service named `serviceName` if found (1 s grace at
+  launch), else `address` (`host`, `host:port`, `[v6]:port`; default 48123), else
+  `pairedAddress` (from the QR); failures, and attempts not connected in 2 s (service with an
+  address behind it) or 6 s, move to the next route. Foreground retries the service it was on
+  at once (`resumeService`), address after 1 s. Connected by address with the service listed,
+  a silent TCP probe of the service moves the session over once it connects (retried every
+  10 s; a move that fails before the handshake holds probes off for 60 s). Legacy `token.*`/
+  `addr.*`/`preferredHost`/`manualHost` are migrated once (`DeviceStore.migrate`) and deleted.
 - Testing input against the real Mac moves the user's cursor; keep it to a single swipe. Never
   run a stand-in host on port 48123 while the user may be using the app — their phone will
   connect to it.

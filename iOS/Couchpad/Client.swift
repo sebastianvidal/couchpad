@@ -3,20 +3,27 @@ import Foundation
 import Network
 import Combine
 
-let servicePort: UInt16 = 48123
-
 /// Finds computers running Couchpad over Bonjour, keeps one TCP connection open, runs the
 /// protocol v2 handshake (see SecureChannel.swift) so every line is encrypted, and handles
 /// pairing: the phone proves it holds a token (or the pairing code) with an HMAC over the
-/// handshake transcript, and the host proves the same back. Tokens are kept per host so the
-/// code is only needed once.
+/// handshake transcript, and the host proves the same back. Paired computers are saved as
+/// devices (Devices.swift), each with its token, so the code is only needed once, however
+/// the computer is reached.
 ///
 /// Session rules:
+/// - The app connects to the selected device and nothing else, whatever else is on the
+///   network: by its Bonjour service when it is found there, else by the address in its
+///   profile (a VPN address), else by the address a QR pairing gave (`pickRoute`).
+/// - The local network wins whenever it is there: connected by address, Bonjour finding the
+///   computer starts a probe of its service, and once that connects the session moves over
+///   (`startProbe`). A move that then fails goes back to the address and holds off for 60 s.
 /// - Leaving the app closes the connection cleanly (the host then releases any held keys).
-/// - Returning reconnects at once with the stored token; discovery is restarted too, since
-///   Bonjour results go stale while the app is suspended.
-/// - Transient failures retry with backoff and never touch the token. The pairing prompt only
-///   appears when the host explicitly refuses the token or there is none.
+/// - Returning reconnects at once with the stored token, on the service it was using if it
+///   was on one (`resumeService`), else after a second's wait for Bonjour; discovery is
+///   restarted too, since Bonjour results go stale while the app is suspended.
+/// - Transient failures retry with backoff, on the next route, and never touch the token. The
+///   pairing prompt only appears when the host explicitly refuses the token or there is none,
+///   and a refused token is kept until a code pairing replaces it.
 @MainActor
 final class Client: ObservableObject {
     struct Service: Identifiable, Hashable {
@@ -29,13 +36,47 @@ final class Client: ObservableObject {
         case searching, connecting, needsCode, wrongCode, paired, disconnected
     }
 
-    enum HostPlatform { case mac, windows }
+    /// How a connection reaches its computer (see `pickRoute` for the order).
+    enum Route: Equatable {
+        /// The Bonjour service it is found under on the local network.
+        case service(String)
+        /// The address typed into its profile.
+        case address(String)
+        /// The address a QR pairing carried.
+        case pairedAddress(String)
+
+        var address: String? {
+            switch self {
+            case .service: nil
+            case .address(let a), .pairedAddress(let a): a
+            }
+        }
+    }
+
+    /// What the app connects to: a saved device, or something not saved yet (a service
+    /// nobody has paired with, a new address, a QR code from a new computer), which becomes a
+    /// device on its first `ok`. Replaces keeping a name and a manual host apart.
+    private enum Target: Equatable {
+        case device(UUID)
+        case new(Device)
+    }
 
     @Published private(set) var services: [Service] = []
     @Published private(set) var status = "Looking for your computer…"
     @Published private(set) var phase: Phase = .searching
+    /// The target's name, for UI text.
     @Published private(set) var macName = ""
     @Published private(set) var hostPlatform: HostPlatform = .mac
+    @Published private(set) var devices: [Device] = []
+    /// The device to connect to, saved across launches.
+    @Published private(set) var selectedID: UUID?
+    /// Why the pairing prompt is up although the device has a token: the host refused it.
+    @Published private(set) var pairingNote: String?
+    /// The computer can't be reached: the connection is waiting for a route, or has failed
+    /// twice running. The pairing prompt, which stays up through reconnects, says so. A
+    /// wrong code's single hang-up doesn't count (the reconnect right after succeeds).
+    @Published private(set) var unreachable = false
+    @Published private var target: Target?
 
     /// Binary messages from the host (the screen stream), delivered on the main actor.
     var onScreenPacket: ((Data) -> Void)?
@@ -52,6 +93,23 @@ final class Client: ObservableObject {
     /// "Mac" or "PC", for UI text about the paired computer.
     var hostNoun: String { hostPlatform == .windows ? "PC" : "Mac" }
     var isConnected: Bool { phase == .paired }
+
+    /// The saved device being connected to; nil while the target is something new.
+    var currentDeviceID: UUID? {
+        if case .device(let id)? = target { return id }
+        return nil
+    }
+
+    /// Discovered services no saved device is found under: computers to pair with.
+    var nearbyServices: [Service] {
+        services.filter { service in !devices.contains { $0.serviceName == service.name } }
+    }
+
+    /// Whether the device is being found on the local network right now.
+    func isOnLocalNetwork(_ device: Device) -> Bool {
+        guard let name = device.serviceName else { return false }
+        return services.contains { $0.name == name }
+    }
 
     private var browser: NWBrowser?
     private var connection: NWConnection?
@@ -70,29 +128,73 @@ final class Client: ObservableObject {
     private var sentCredential: Credential?
     private var pendingCode: String?
     private var retryTask: Task<Void, Never>?
+    /// When `retryTask` fires, so a later request can leave a sooner one be (`scheduleRetry`).
+    private var retryDue: Date?
+    /// Reconnects a moment after the target's address stops changing in its profile.
+    private var addressEdit: Task<Void, Never>?
     private var failures = 0
     private var inBackground = false
-    private var preferredName: String?
-    private var manualHost: String?
+    /// The route of the current (or last) connection, and whether a host answered the
+    /// handshake on it: a route that worked is tried again first, one that didn't gives way
+    /// to the next (`pickRoute`).
+    private var lastRoute: Route?
+    private var routeWorked = false
+    /// Until then, a device expected on the local network waits for Bonjour before its
+    /// address is tried: about a second, so someone on a VPN isn't kept waiting.
+    private var bonjourGrace = Date.distantPast
+    /// Devices whose token the host refused, with what to say about it. In memory only: the
+    /// reconnect after the host hangs up shows the pairing prompt instead of trying the
+    /// token again, while the token itself stays until a code pairing replaces it (an
+    /// address typo that reaches some other Couchpad host must not wipe a good pairing).
+    /// Cleared on pairing, on returning to the app, on selecting the device, and on editing
+    /// its address.
+    private var refusals: [UUID: String] = [:]
+    /// The service the session was on when the app went to the background, if it had
+    /// worked: returning tries it at once instead of waiting for Bonjour to find it again.
+    /// The service endpoint is name-based and resolved afresh, never a cached IP, which on
+    /// another network could be some other host.
+    private var resumeService: Service?
+    /// A throwaway TCP connection to the target's service while the session runs by
+    /// address (`startProbe`), its retry, and the hold after a move that didn't work.
+    private var probe: NWConnection?
+    private var probeRetry: Task<Void, Never>?
+    private var probeHoldUntil = Date.distantPast
+    /// The current service connection is a probe's move, not yet proven by a handshake.
+    private var movedByProbe = false
     private let queue = DispatchQueue(label: "couchpad.client")
     private let defaults = UserDefaults.standard
 
     private enum Credential { case token(String), code(String) }
 
+    init() {
+        DeviceStore.migrateIfNeeded(defaults)
+        let saved = DeviceStore.load(from: defaults)
+        devices = saved.devices
+        selectedID = saved.selected
+    }
+
     // MARK: Lifecycle
 
     func startBrowsing() {
         guard browser == nil else { return }
-        preferredName = defaults.string(forKey: "preferredHost")
+        bonjourGrace = Date().addingTimeInterval(1)
         restartBrowser()
-        // Bonjour only calls back when it finds something, so give it a moment and then try
-        // the stored address if there is still nothing.
-        scheduleRetry(after: 2)
+        // A device reached only by address connects at once; one expected on the local
+        // network waits out the grace (Bonjour only calls back when it finds something).
+        autoConnect()
     }
 
     func appDidEnterBackground() {
+        // Before anything resets: the service this session was on, if it had worked.
+        if case .service(let name)? = lastRoute, routeWorked, let service = services.first(where: { $0.name == name }) {
+            resumeService = service
+        } else {
+            resumeService = nil
+        }
         inBackground = true
-        retryTask?.cancel()
+        cancelRetry()
+        cancelProbe()
+        addressEdit?.cancel()
         // A clean close: the host sees the FIN right away instead of a dead socket later.
         if let connection {
             connection.cancel()
@@ -109,12 +211,27 @@ final class Client: ObservableObject {
         guard inBackground else { return }
         inBackground = false
         failures = 0
+        unreachable = false
+        refusals.removeAll()
+        pairingNote = nil
+        lastRoute = nil
+        routeWorked = false
+        // Results from before the suspension may be from another network (the phone left
+        // home): start from none, and give Bonjour its moment again.
+        services = []
+        bonjourGrace = Date().addingTimeInterval(1)
         restartBrowser()
-        if let manualHost {
-            connect(host: manualHost)
-        } else {
-            autoConnect()
+        // On the service before: straight back to it (at home that is where it will be,
+        // without waiting on Bonjour). With an address to fall back on, the attempt gets a
+        // second: not connected by then, the retry moves on (`pickRoute`: a service that
+        // didn't work, and isn't listed, gives way to the address). With none, it is left
+        // to the usual timeouts.
+        if let service = resumeService, connection == nil, let device = targetDevice, device.serviceName == service.name {
+            open(.service(service.name))
+            if routes(for: device).contains(where: { $0.address != nil }) { scheduleRetry(after: 1) }
+            return
         }
+        autoConnect()
     }
 
     private func restartBrowser() {
@@ -126,46 +243,341 @@ final class Client: ObservableObject {
                 return Service(id: name, name: name, endpoint: result.endpoint)
             }.sorted { $0.name < $1.name }
             Task { @MainActor in
-                self?.services = list
-                self?.autoConnect()
+                guard let self else { return }
+                self.services = list
+                self.servicesChanged()
             }
         }
         browser.start(queue: queue)
         self.browser = browser
     }
 
+    // MARK: Devices
+
+    /// Connects to a saved device from now on (and at launch). Selecting the one already
+    /// connected changes nothing; selecting it again while it isn't connected starts over,
+    /// token included.
+    func select(_ id: UUID) {
+        guard devices.contains(where: { $0.id == id }) else { return }
+        refusals[id] = nil
+        setSelection(id)
+        if currentDeviceID == id, isConnected { return }
+        retarget(.device(id))
+    }
+
+    func rename(_ id: UUID, to name: String) {
+        guard let i = devices.firstIndex(where: { $0.id == id }), devices[i].name != name else { return }
+        devices[i].name = name
+        saveDevices()
+        if currentDeviceID == id { macName = devices[i].displayName }
+    }
+
+    /// Saved as it is typed. Clears a refusal (the refusal may have come from the wrong
+    /// address), and if this device is the target and not connected, reconnects once the
+    /// typing pauses.
+    func setAddress(_ address: String, for id: UUID) {
+        guard let i = devices.firstIndex(where: { $0.id == id }), devices[i].address != address else { return }
+        devices[i].address = address
+        saveDevices()
+        refusals[id] = nil
+        guard currentDeviceID == id, !isConnected else { return }
+        pairingNote = nil
+        addressEdit?.cancel()
+        addressEdit = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled, let self, !self.inBackground, self.currentDeviceID == id, !self.isConnected else { return }
+            self.retarget(.device(id))
+        }
+    }
+
+    /// Removes the profile, token and all. If it was the target, the connection goes and the
+    /// app moves on to the next saved device (or, with none left, whatever it finds).
+    func forget(_ id: UUID) {
+        devices.removeAll { $0.id == id }
+        refusals[id] = nil
+        saveDevices()
+        if selectedID == id { setSelection(devices.first?.id) }
+        guard currentDeviceID == id else { return }
+        closeConnection()
+        target = nil
+        lastRoute = nil
+        failures = 0
+        unreachable = false
+        pairingNote = nil
+        phase = .searching
+        macName = ""
+        status = "Looking for your computer…"
+        autoConnect()
+    }
+
+    private func setSelection(_ id: UUID?) {
+        guard selectedID != id else { return }
+        selectedID = id
+        DeviceStore.saveSelection(id, to: defaults)
+    }
+
+    private func saveDevices() {
+        DeviceStore.save(devices, to: defaults)
+    }
+
+    private var targetDevice: Device? {
+        switch target {
+        case .device(let id)?: devices.first { $0.id == id }
+        case .new(let device)?: device
+        case nil: nil
+        }
+    }
+
     // MARK: Connecting
 
+    /// With nothing connected: on to the target, picking one first if there is none (the
+    /// selected device, or the first saved one, or on a first run whatever Bonjour finds,
+    /// which leads to the pairing prompt).
     private func autoConnect() {
-        guard connection == nil, !inBackground, manualHost == nil else { return }
-        if services.isEmpty {
-            // Bonjour found nothing (yet, or blocked): fall back to the address a QR pairing gave us.
-            if let name = preferredName, let addr = defaults.string(forKey: addressKey(name)) {
-                connect(endpoint: .hostPort(host: NWEndpoint.Host(addr), port: NWEndpoint.Port(rawValue: servicePort)!), name: name)
+        guard connection == nil, !inBackground else { return }
+        // An unpaired computer that has left the network: nothing ties the phone to it, so
+        // pick again rather than wait for it while another one is there.
+        if case .new(let device)? = target, routes(for: device).isEmpty {
+            target = nil
+            lastRoute = nil
+            pairingNote = nil
+            macName = ""
+        }
+        guard target != nil else {
+            if let id = selectedID ?? devices.first?.id {
+                setSelection(id)
+                retarget(.device(id))
+            } else if devices.isEmpty, let service = services.first {
+                retarget(.new(Device(name: service.name, serviceName: service.name)))
+            } else {
+                phase = .searching
+                status = "Looking for your computer…"
             }
             return
         }
-        // The host we used last, then any host we have paired with, then whatever is there.
-        let service = services.first { $0.name == preferredName }
-            ?? services.first { token(for: $0.name) != nil }
-            ?? services[0]
-        connect(to: service)
+        connectTarget()
     }
 
+    /// Bonjour's results changed. A connection still trying another route gives way to the
+    /// local network as soon as the target shows up there; a working one by address moves
+    /// over once a probe shows the service answers (`startProbe`).
+    private func servicesChanged() {
+        if !inBackground, let device = targetDevice, let name = device.serviceName,
+           services.contains(where: { $0.name == name }), lastRoute != .service(name),
+           let connection {
+            if connection.state == .ready {
+                startProbe()
+            } else {
+                closeConnection()
+                connectTarget(prefer: .service(name))
+            }
+            return
+        }
+        autoConnect()
+    }
+
+    // MARK: Moving to the local network
+
+    /// The service to move to: the target is connected (or at the pairing prompt on a live
+    /// connection) by address, and Bonjour lists its service.
+    private var probeCandidate: (device: UUID, service: Service)? {
+        guard !inBackground, lastRoute?.address != nil, let connection, connection.state == .ready,
+              let device = targetDevice, let name = device.serviceName,
+              let service = services.first(where: { $0.name == name }) else { return nil }
+        return (device.id, service)
+    }
+
+    /// Connected by address with the computer advertised on the local network: a plain TCP
+    /// connection to the service, which says nothing (hosts ignore that), checks the
+    /// advertisement is reachable before the working session is given up for it. Only once
+    /// it connects does the session move; failing or waiting, it ends and is tried again
+    /// 10 s later while all this still holds. One at a time.
+    private func startProbe() {
+        // (A pending retry is the next attempt: Bonjour churning doesn't bring it forward.)
+        guard probe == nil, probeRetry == nil, let candidate = probeCandidate else { return }
+        let hold = probeHoldUntil.timeIntervalSinceNow
+        if hold > 0 {
+            scheduleProbe(after: hold)
+            return
+        }
+        let tcp = NWProtocolTCP.Options()
+        tcp.connectionTimeout = 3
+        let probe = NWConnection(to: candidate.service.endpoint, using: NWParameters(tls: nil, tcp: tcp))
+        probe.stateUpdateHandler = { [weak self] state in
+            Task { @MainActor in
+                guard let self, self.probe === probe else { return }
+                switch state {
+                case .ready:
+                    self.cancelProbe()
+                    // Still the same device, still by address, service still listed.
+                    guard let now = self.probeCandidate, now.device == candidate.device,
+                          now.service.name == candidate.service.name else { return }
+                    self.closeConnection()
+                    self.movedByProbe = true
+                    self.connectTarget(prefer: .service(now.service.name))
+                case .waiting, .failed:
+                    self.cancelProbe()
+                    self.scheduleProbe(after: 10)
+                default:
+                    break
+                }
+            }
+        }
+        self.probe = probe
+        probe.start(queue: queue)
+    }
+
+    private func scheduleProbe(after seconds: Double) {
+        probeRetry?.cancel()
+        probeRetry = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled, let self else { return }
+            self.probeRetry = nil
+            self.startProbe()
+        }
+    }
+
+    private func cancelProbe() {
+        probe?.cancel()
+        probe = nil
+        probeRetry?.cancel()
+        probeRetry = nil
+    }
+
+    /// A connection made by a probe's move that failed before a host answered: the
+    /// advertisement isn't reachable after all (TCP accepted, no Couchpad there). The usual
+    /// failover goes back to the address; no more probes for a minute, so it doesn't flap.
+    private func noteMoveFailed() {
+        guard movedByProbe else { return }
+        movedByProbe = false
+        if !routeWorked { probeHoldUntil = Date().addingTimeInterval(60) }
+    }
+
+    /// Discovered service a user tapped: a saved device's is that device; any other is a
+    /// computer to pair with.
     func connect(to service: Service) {
-        manualHost = nil
-        connect(endpoint: service.endpoint, name: service.name)
+        if let device = devices.first(where: { $0.serviceName == service.name }) {
+            select(device.id)
+        } else {
+            retarget(.new(Device(name: service.name, serviceName: service.name)))
+        }
     }
 
-    func connect(host: String) {
-        let trimmed = host.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        manualHost = trimmed
-        connect(endpoint: .hostPort(host: NWEndpoint.Host(trimmed), port: NWEndpoint.Port(rawValue: servicePort)!), name: trimmed)
+    /// "Add a computer by address": an address a saved device already has is that device;
+    /// any other becomes a device of its own once it pairs. False if it isn't an address.
+    @discardableResult
+    func connect(address: String) -> Bool {
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard HostAddress(trimmed) != nil else { return false }
+        if let device = devices.first(where: { $0.address == trimmed || $0.pairedAddress == trimmed }) {
+            select(device.id)
+        } else {
+            retarget(.new(Device(name: trimmed, address: trimmed)))
+        }
+        return true
     }
 
-    private func connect(endpoint: NWEndpoint, name: String) {
-        retryTask?.cancel()
+    /// Switches to a new target: the current connection goes, the route choice and backoff
+    /// start over.
+    private func retarget(_ new: Target, code: String? = nil, prefer: Route? = nil) {
+        closeConnection()
+        target = new
+        lastRoute = nil
+        routeWorked = false
+        failures = 0
+        unreachable = false
+        movedByProbe = false
+        resumeService = nil
+        pendingCode = code
+        guard let device = targetDevice else { return }
+        pairingNote = refusals[device.id]
+        hostPlatform = device.platform
+        macName = device.displayName
+        phase = .connecting
+        connectTarget(prefer: prefer)
+    }
+
+    /// The device's routes that can be tried right now, best first: the service while
+    /// Bonjour finds it, the profile's address, the QR's address.
+    private func routes(for device: Device) -> [Route] {
+        var routes: [Route] = []
+        if let name = device.serviceName, services.contains(where: { $0.name == name }) { routes.append(.service(name)) }
+        let address = device.address.trimmingCharacters(in: .whitespaces)
+        if HostAddress(address) != nil { routes.append(.address(address)) }
+        if let paired = device.pairedAddress, paired != address, HostAddress(paired) != nil { routes.append(.pairedAddress(paired)) }
+        return routes
+    }
+
+    /// The route for the next attempt. The first, unless there was a last one: a route a
+    /// host answered on is tried again (the host hung up after a refusal, or the link
+    /// blipped); one that failed gives way to the local network if the computer is found
+    /// there, else to the next in line, so a failing address alternates with the QR's.
+    private func pickRoute(_ routes: [Route]) -> Route? {
+        guard let last = lastRoute, let i = routes.firstIndex(of: last) else { return routes.first }
+        if routeWorked { return last }
+        if case .service = last {} else if case .service? = routes.first { return routes.first }
+        return routes[(i + 1) % routes.count]
+    }
+
+    private func connectTarget(prefer: Route? = nil) {
+        guard !inBackground, let device = targetDevice else { return }
+        macName = device.displayName
+        let routes = routes(for: device)
+        if let prefer, routes.contains(prefer) {
+            open(prefer)
+            return
+        }
+        let local = device.serviceName.map { routes.contains(.service($0)) } ?? false
+        if !local, device.serviceName != nil, lastRoute == nil, Date() < bonjourGrace {
+            if phase != .needsCode && phase != .wrongCode { phase = .connecting }
+            status = "Looking for \(macName)…"
+            scheduleRetry(after: max(0.05, bonjourGrace.timeIntervalSinceNow))
+            return
+        }
+        guard let route = pickRoute(routes) else {
+            // Only ever found on the local network, and not there now: the browser calls
+            // back when it is.
+            if phase != .needsCode && phase != .wrongCode { phase = .searching }
+            status = "Looking for \(macName) on the local network…"
+            return
+        }
+        open(route)
+    }
+
+    private func endpoint(for route: Route) -> NWEndpoint? {
+        switch route {
+        case .service(let name):
+            // Not listed (yet) on returning to the app: the service it was on before.
+            return services.first { $0.name == name }?.endpoint
+                ?? resumeService.flatMap { $0.name == name ? $0.endpoint : nil }
+        case .address(let text), .pairedAddress(let text):
+            guard let address = HostAddress(text), let port = NWEndpoint.Port(rawValue: address.port) else { return nil }
+            return .hostPort(host: NWEndpoint.Host(address.host), port: port)
+        }
+    }
+
+    /// The target's name, with the address when it is reached by one, so the status says
+    /// which way it is connected ("Connected to Studio (100.64.0.2)").
+    private var targetLabel: String {
+        guard let address = lastRoute?.address, address != macName else { return macName }
+        return "\(macName) (\(address))"
+    }
+
+    private func closeConnection() {
+        cancelRetry()
+        cancelProbe()
+        addressEdit?.cancel()
+        connection?.cancel()
+        connection = nil
+        receiving = false
+        videoLink?.cancel()
+        videoLink = nil
+    }
+
+    private func open(_ route: Route) {
+        guard let endpoint = endpoint(for: route) else { return }
+        cancelRetry()
+        cancelProbe()
         connection?.cancel()
         videoLink?.cancel()
         videoLink = nil
@@ -176,9 +588,17 @@ final class Client: ObservableObject {
         sendCipher = nil
         recvCipher = nil
         sentCredential = nil
-        macName = name
-        phase = .connecting
-        status = failures == 0 ? "Connecting to \(name)…" : "Reconnecting to \(name)…"
+        lastRoute = route
+        routeWorked = false
+        // Reconnecting with the pairing prompt up (the host hangs up after a refusal or a
+        // wrong code) keeps it up, rather than taking its field away for a moment.
+        let pairing = phase == .needsCode || phase == .wrongCode
+        if !pairing { phase = .connecting }
+        let label = targetLabel
+        // (At the prompt with the computer gone, its "Can't reach" line stays.)
+        if !(pairing && unreachable) {
+            status = failures == 0 ? "Connecting to \(label)…" : "Reconnecting to \(label)…"
+        }
 
         let params = NWParameters.tcp
         (params.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options)?.noDelay = true
@@ -201,17 +621,33 @@ final class Client: ObservableObject {
                     let hello = "v2 \(self.privateKey.publicKey.rawRepresentation.base64EncodedString())\n"
                     connection.send(content: Data(hello.utf8), completion: .contentProcessed { _ in })
                 case .waiting(let error):
-                    // No route yet (Wi-Fi coming back, host restarting). Give it a moment, then retry fresh.
-                    self.phase = .connecting
-                    self.status = "Can't reach \(name): \(error.localizedDescription)"
-                    self.scheduleRetry(after: 3)
+                    // No route yet (Wi-Fi coming back, host restarting, left home). Give it a
+                    // moment, then retry fresh, on the next route if this one never worked.
+                    if self.phase != .needsCode && self.phase != .wrongCode {
+                        self.phase = .connecting
+                        self.status = "Can't reach \(label): \(error.localizedDescription)"
+                    } else {
+                        // On the pairing prompt, which shows it: the plain version.
+                        self.status = "Can't reach \(label)"
+                    }
+                    self.unreachable = true
+                    self.noteMoveFailed()
+                    // Called again each time the error changes: a sooner retry stays due.
+                    self.scheduleRetry(after: 3, keepSooner: true)
                 case .failed, .cancelled:
                     self.connection = nil
                     self.receiving = false
                     if !self.inBackground {
+                        self.noteMoveFailed()
                         if self.phase != .wrongCode && self.phase != .needsCode { self.phase = .disconnected }
-                        if self.phase == .disconnected { self.status = "Disconnected from \(name)" }
                         self.failures += 1
+                        // Twice running: gone, not a host hanging up after a refusal or a wrong code.
+                        if self.failures >= 2 { self.unreachable = true }
+                        if self.phase == .disconnected {
+                            self.status = "Disconnected from \(label)"
+                        } else if self.unreachable {
+                            self.status = "Can't reach \(label)"
+                        }
                         self.scheduleRetry(after: min(Double(self.failures), 5))
                     }
                 default:
@@ -221,22 +657,45 @@ final class Client: ObservableObject {
         }
         connection.start(queue: queue)
         self.connection = connection
+        // An attempt that neither connects nor fails is given up on, and the retry moves to
+        // the next route: a service that has gone away can sit resolving indefinitely (seen:
+        // host quit, the browser still listing it, the reconnect hanging for good). A
+        // service with an address to fall back on gets 2 s, anything else outlasts TCP's 5 s.
+        let fallback = targetDevice.map { routes(for: $0).contains { $0.address != nil } } ?? false
+        if case .service = route, fallback {
+            scheduleRetry(after: 2)
+        } else {
+            scheduleRetry(after: 6)
+        }
     }
 
-    private func scheduleRetry(after seconds: Double) {
+    /// `keepSooner`: a retry already due sooner stays as it is, rather than being put back.
+    private func scheduleRetry(after seconds: Double, keepSooner: Bool = false) {
+        let due = Date().addingTimeInterval(seconds)
+        if keepSooner, retryTask != nil, let pending = retryDue, pending <= due { return }
         retryTask?.cancel()
+        retryDue = due
         retryTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
-            guard !Task.isCancelled, let self, !self.inBackground else { return }
-            if let connection = self.connection, connection.state == .ready { return }
+            guard !Task.isCancelled, let self else { return }
+            self.retryTask = nil
+            self.retryDue = nil
+            guard !self.inBackground else { return }
+            // Connected and answered: nothing to retry. Connected but silent counts as not
+            // (something that accepts and never answers the handshake), or the attempt
+            // would sit there for good, a probe's move having given up a working session for it.
+            if let connection = self.connection, connection.state == .ready, self.recvCipher != nil { return }
+            self.noteMoveFailed()
             self.connection?.cancel()
             self.connection = nil
-            if let manualHost = self.manualHost {
-                self.connect(host: manualHost)
-            } else {
-                self.autoConnect()
-            }
+            self.autoConnect()
         }
+    }
+
+    private func cancelRetry() {
+        retryTask?.cancel()
+        retryTask = nil
+        retryDue = nil
     }
 
     // MARK: Handshake and pairing
@@ -254,24 +713,32 @@ final class Client: ObservableObject {
         sendCipher = FrameCipher(key: key, direction: 0)
         recvCipher = FrameCipher(key: key, direction: 1)
         sessionKey = key
+        routeWorked = true   // a Couchpad host answers on this route
+        movedByProbe = false
+        unreachable = false
 
+        let device = targetDevice
         if let code = pendingCode {
             pendingCode = nil
             authenticate(.code(code))
-        } else if let token = token(for: macName) {
+        } else if let device, let token = device.token, refusals[device.id] == nil {
             authenticate(.token(token))
         } else if phase != .wrongCode {
             // (After a wrong code the host hangs up and we reconnect; keep that message.)
             phase = .needsCode
-            status = "Enter the code shown on \(macName)"
+            status = device.flatMap { refusals[$0.id] } ?? "Enter the code shown on \(macName)"
+        } else {
+            status = wrongCodeStatus
         }
     }
+
+    private var wrongCodeStatus: String { "Wrong or expired code. Check the pairing window on \(macName)" }
 
     private func authenticate(_ credential: Credential) {
         sentCredential = credential
         let kind: String, secret: String
         switch credential {
-        case .token(let t): kind = "token"; secret = t; status = "Connecting to \(macName)…"
+        case .token(let t): kind = "token"; secret = t; status = "Connecting to \(targetLabel)…"
         case .code(let c): kind = "code"; secret = c; status = "Pairing with \(macName)…"
         }
         phase = .connecting
@@ -293,37 +760,40 @@ final class Client: ObservableObject {
     }
 
     /// Pairs from a scanned or opened `couchpad://pair?name=&addr=&port=&code=` URL.
-    /// Connects straight to the address, so this works even where Bonjour is blocked.
+    /// Connects straight to the address, so this works even where Bonjour is blocked; the
+    /// address is kept as the device's `pairedAddress` (with the port, if not the usual one).
+    /// A saved device found under that name gets its token replaced; any other computer
+    /// becomes a device once it pairs.
     @discardableResult
     func pair(using url: URL) -> Bool {
         guard url.scheme == "couchpad", url.host == "pair",
               let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return false }
-        func value(_ key: String) -> String? { items.first { $0.name == key }?.value }
-        guard let code = value("code"), !code.isEmpty else { return false }
-        let port = NWEndpoint.Port(rawValue: UInt16(value("port") ?? "") ?? servicePort)!
-        if let addr = value("addr"), !addr.isEmpty {
-            let name = value("name") ?? addr
-            defaults.set(addr, forKey: addressKey(name))
-            manualHost = nil
-            pendingCode = code
-            connect(endpoint: .hostPort(host: NWEndpoint.Host(addr), port: port), name: name)
+        func value(_ key: String) -> String? { items.first { $0.name == key }?.value.flatMap { $0.isEmpty ? nil : $0 } }
+        guard let code = value("code") else { return false }
+        let name = value("name")
+        let existing = name.flatMap { name in devices.first { $0.serviceName == name } }
+        if let addr = value("addr") {
+            let paired = HostAddress.string(host: addr, port: UInt16(value("port") ?? "") ?? servicePort)
+            if let existing, let i = devices.firstIndex(of: existing) {
+                devices[i].pairedAddress = paired
+                saveDevices()
+                setSelection(existing.id)
+                retarget(.device(existing.id), code: code, prefer: .pairedAddress(paired))
+            } else {
+                retarget(.new(Device(name: name ?? addr, serviceName: name, pairedAddress: paired)), code: code, prefer: .pairedAddress(paired))
+            }
             return true
         }
-        if let name = value("name"), let service = services.first(where: { $0.name == name }) {
-            pendingCode = code
-            connect(to: service)
+        if let name, let service = services.first(where: { $0.name == name }) {
+            if let existing {
+                setSelection(existing.id)
+                retarget(.device(existing.id), code: code, prefer: .service(service.name))
+            } else {
+                retarget(.new(Device(name: name, serviceName: name)), code: code)
+            }
             return true
         }
         return false
-    }
-
-    func forgetMac() {
-        defaults.removeObject(forKey: tokenKey(macName))
-        if preferredName == macName {
-            preferredName = nil
-            defaults.removeObject(forKey: "preferredHost")
-        }
-        connection?.cancel()
     }
 
     private func handle(_ line: String) {
@@ -341,23 +811,49 @@ final class Client: ObservableObject {
                 connection?.cancel()
                 return
             }
-            defaults.set(token, forKey: tokenKey(macName))
-            preferredName = macName
-            defaults.set(macName, forKey: "preferredHost")
-            hostPlatform = parts[2] == "windows" ? .windows : .mac
+            guard var device = targetDevice else { return }
+            device.token = token
+            device.platform = parts[2] == "windows" ? .windows : .mac
+            if case .new = target {
+                // Paired with something new: it is a device from now on (or, should the
+                // service already have one, that device gets the new token).
+                if let i = devices.firstIndex(where: { $0.serviceName != nil && $0.serviceName == device.serviceName }) {
+                    devices[i].token = token
+                    devices[i].platform = device.platform
+                    if devices[i].pairedAddress == nil { devices[i].pairedAddress = device.pairedAddress }
+                    device = devices[i]
+                } else {
+                    devices.append(device)
+                }
+                target = .device(device.id)
+            } else if let i = devices.firstIndex(where: { $0.id == device.id }) {
+                devices[i] = device
+            }
+            saveDevices()
+            setSelection(device.id)
+            refusals[device.id] = nil
+            pairingNote = nil
+            hostPlatform = device.platform
             phase = .paired
-            status = "Connected to \(macName)"
+            status = "Connected to \(targetLabel)"
             if hostPlatform == .mac { startVideoLink() }
+            // Connected by address while Bonjour already lists the computer: move over.
+            if lastRoute?.address != nil { startProbe() }
         } else if line == "nope" {
             switch sentCredential {
             case .token:
-                // The host forgot this phone; the token is genuinely dead.
-                defaults.removeObject(forKey: tokenKey(macName))
+                // The token stays: it may be good and this the wrong host (a typo in the
+                // address can reach some other Couchpad host). The prompt comes up instead,
+                // and a code pairing replaces the token.
+                let note = lastRoute?.address.map { "\($0) didn't recognize this phone: check the address, or pair again" }
+                    ?? "\(macName) no longer recognizes this phone"
+                if let id = targetDevice?.id { refusals[id] = note }
+                pairingNote = note
                 phase = .needsCode
-                status = "\(macName) no longer recognizes this phone"
+                status = note
             case .code:
                 phase = .wrongCode
-                status = "Wrong or expired code. Check the pairing window on \(macName)"
+                status = wrongCodeStatus
             case nil:
                 break
             }
@@ -486,8 +982,4 @@ final class Client: ObservableObject {
         guard let connection, let cipher = sendCipher, let frame = try? cipher.seal(line) else { return }
         connection.send(content: frame, completion: .contentProcessed { _ in })
     }
-
-    private func tokenKey(_ name: String) -> String { "token.\(name)" }
-    private func addressKey(_ name: String) -> String { "addr.\(name)" }
-    private func token(for name: String) -> String? { defaults.string(forKey: tokenKey(name)) }
 }

@@ -25,15 +25,14 @@
   <h2>Set up, once</h2>
   <ol>
     <li><strong>Install Tailscale on the computer and on the iPhone</strong>, and sign both in to the same account (the Mac App Store app and the iOS app are fine). Each device gets an address that starts with <code>100.</code> and never changes.</li>
-    <li><strong>Pair at home first</strong>, the normal way, over Wi‑Fi: Couchpad on the phone finds the computer, "Pair an iPhone…" in the menu-bar icon shows the QR, scan it. Pairing is tied to the computer's name, not its address, so one pairing covers both the home network and the VPN.</li>
-    <li><strong>Note the computer's Tailscale address.</strong> Tailscale's menu-bar icon shows it; so does <code>tailscale ip -4</code> in Terminal. Something like <code>100.101.102.103</code>.</li>
+    <li><strong>Pair at home first</strong>, the normal way, over Wi‑Fi: Couchpad on the phone finds the computer, "Pair an iPhone…" in the menu-bar icon shows the QR, scan it. One pairing covers both the home network and the VPN.</li>
+    <li><strong>Give the phone the computer's Tailscale address.</strong> Tailscale's menu-bar icon shows it; so does <code>tailscale ip -4</code> in Terminal. Something like <code>100.101.102.103</code>. On the phone: gear → <strong>Connection</strong> → the computer → <strong>Address</strong>. Add <code>:port</code> only if you changed the port from 48123.</li>
   </ol>
 
   <h2>Connect from outside</h2>
   <ol>
     <li>Make sure Tailscale is connected on the phone (its toggle in the Tailscale app, or the VPN indicator in the status bar).</li>
-    <li>Open Couchpad. It will search for a while and find nothing: discovery uses Bonjour, which does not cross a VPN.</li>
-    <li>Open the gear → <strong>Connection</strong> and type the computer's Tailscale address. The phone connects, proves it holds its pairing token, and you are in. It remembers the address, so next time it reconnects on its own when Bonjour comes up empty.</li>
+    <li>Open Couchpad. Discovery uses Bonjour, which does not cross a VPN, so after about a second of not finding the computer on the local network the phone switches to its address by itself, proves it holds its pairing token, and you are in. The status in the dot's menu shows the address while it is in use. Back home it moves back to the local network by itself as soon as it finds the computer there.</li>
     <li>Turn on the screen with the display icon if you want to see what you are doing.</li>
   </ol>
 
@@ -47,8 +46,7 @@
 
   <h2>Rough edges, for now</h2>
   <ul>
-    <li>The QR code carries the computer's home Wi‑Fi address, not its Tailscale one, so scanning it from outside hands the phone an address it cannot reach. Pair at home, or type the Tailscale address afterwards.</li>
-    <li>The phone's search for the computer takes a few seconds to give up before it tries the stored address. Typing the address in Connection skips the wait.</li>
+    <li>The QR code carries the computer's home Wi‑Fi address, not its Tailscale one, so scanning it from outside hands the phone an address it cannot reach. Pair at home, or add the computer by its Tailscale address (Settings → Connection → Add a computer by address…) and pair through that.</li>
     <li>Windows hosts work for input but do not stream the screen yet, at home or away.</li>
   </ul>
 
