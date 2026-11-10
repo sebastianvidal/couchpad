@@ -31,7 +31,10 @@ struct ContentView: View {
     /// Waits for a pinch to settle before asking the host for a sharper (or coarser) stream.
     @State private var zoomSettle: Task<Void, Never>?
     /// Waits for the picture's pane to stop changing size before asking for a stream of it.
-    @State private var resizeSettle: Task<Void, Never>?
+    /// In a box, not state of its own: the pane reports its size while the picture view is
+    /// being put in, and a state change at that moment made SwiftUI build the picture view
+    /// a second time and throw one of the two away.
+    @State private var resizeSettle = TaskBox()
     /// When the keyboard was last asked up or down: a window that changes height just after
     /// is iOS making room for it (split view), and the layout follows with the keyboard.
     @State private var keyboardToggledAt = Date.distantPast
@@ -222,9 +225,9 @@ struct ContentView: View {
             // pane changes size in steps; the picture scales along, and the host is asked for
             // the new size once, when it has settled, rather than restarting its stream at
             // every step. The first size (the picture appearing) goes out at once.
-            resizeSettle?.cancel()
+            resizeSettle.task?.cancel()
             guard old.width > 0, new.width > 0 else { syncScreen(); return }
-            resizeSettle = Task {
+            resizeSettle.task = Task {
                 try? await Task.sleep(for: .milliseconds(400))
                 guard !Task.isCancelled else { return }
                 syncScreen()
@@ -970,4 +973,9 @@ struct HoldButton: View {
                 }
         )
     }
+}
+
+/// A pending task held by reference, so replacing it does not count as a state change.
+private final class TaskBox {
+    var task: Task<Void, Never>?
 }

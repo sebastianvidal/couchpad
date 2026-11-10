@@ -157,7 +157,7 @@ struct ScreenView: UIViewRepresentable {
     func makeUIView(context: Context) -> ScreenUIView {
         let view = ScreenUIView()
         view.layer.masksToBounds = true
-        view.layer.addSublayer(receiver.layer)
+        view.videoLayer = receiver.layer
         return view
     }
 
@@ -168,12 +168,33 @@ struct ScreenView: UIViewRepresentable {
     }
 }
 
+/// Holds the receiver's one picture layer while it is on screen. SwiftUI can make more than
+/// one picture view at a time (one it never shows, or an old one kept for an animation),
+/// and the layer can only be in one: handed over at creation, it went to whichever view was
+/// made last, and when that was not the one on screen the picture stayed empty while the
+/// stream ran on. So the view that is in a window takes the layer: at once when it enters
+/// one, and on every layout if whoever holds it has left its window.
 final class ScreenUIView: UIView {
     var zoom: CGFloat = 1
     var pan = CGPoint.zero
+    weak var videoLayer: CALayer?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        claimVideoLayer(force: true)
+    }
+
+    private func claimVideoLayer(force: Bool = false) {
+        guard window != nil, let videoLayer, videoLayer.superlayer !== layer else { return }
+        let holder = videoLayer.superlayer?.delegate as? UIView
+        guard force || holder?.window == nil else { return }
+        layer.addSublayer(videoLayer)
+        setNeedsLayout()
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        claimVideoLayer()
         let frame = ScreenGeometry.zoomed(bounds, zoom: zoom, pan: pan)
         CATransaction.begin()
         CATransaction.setDisableActions(true)   // no implicit animation: it must follow the fingers
