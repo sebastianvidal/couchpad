@@ -32,7 +32,7 @@ struct SetupView: View {
                     step(2, "Allow it once",
                          "macOS asks for Accessibility access, which is what lets it move the pointer and type. Windows asks to allow it through the firewall on private networks.")
                     step(3, "Pair",
-                         "Put both devices on the same Wi-Fi. This app finds the computer by itself; enter the 6-digit code from its menu-bar or tray icon the first time. Away from home on a VPN, add the computer's VPN address to its profile in Settings → Connection; no need to pair again.")
+                         "Put both devices on the same Wi-Fi. This app finds the computer by itself; enter the 6-digit code from its menu-bar or tray icon the first time. Away from home on a VPN, it reaches the computer by the addresses it learned at home; no need to pair again.")
                 }
 
                 Section("Gestures") {

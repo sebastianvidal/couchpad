@@ -1,7 +1,4 @@
 using System.Diagnostics;
-using System.Net;
-using System.Net.NetworkInformation;
-using System.Net.Sockets;
 using System.Reflection;
 using Microsoft.Win32;
 
@@ -83,7 +80,10 @@ static class Program
     static void Refresh()
     {
         statusItem.Text = server.Status;
-        addressItem.Text = $"Address: {LocalIPv4() ?? "?"}:{Port}";
+        var addresses = HostAddresses.IPv4();
+        addressItem.Text = addresses.Count > 1
+            ? $"Addresses: {string.Join(", ", addresses)} (port {Port})"
+            : $"Address: {addresses.FirstOrDefault() ?? "?"}:{Port}";
         startupItem.Checked = IsStartupEnabled();
         forgetItem.Enabled = Pairing.PairedCount > 0;
         tray.Text = $"Couchpad — {server.Status}";
@@ -95,7 +95,7 @@ static class Program
         pairingForm.ShowPairing();
     }
 
-    static string PairingPayload() => PairingUrl.Make(Environment.MachineName, LocalIPv4(), Port, Pairing.Code);
+    static string PairingPayload() => PairingUrl.Make(Environment.MachineName, HostAddresses.IPv4(), Port, Pairing.Code);
 
     static void ForgetPhones()
     {
@@ -119,20 +119,5 @@ static class Program
         if (IsStartupEnabled()) key.DeleteValue("Couchpad", false);
         else key.SetValue("Couchpad", $"\"{Environment.ProcessPath}\"");
         Refresh();
-    }
-
-    static string? LocalIPv4()
-    {
-        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
-        {
-            if (nic.OperationalStatus != OperationalStatus.Up) continue;
-            if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
-            foreach (var addr in nic.GetIPProperties().UnicastAddresses)
-            {
-                if (addr.Address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(addr.Address))
-                    return addr.Address.ToString();
-            }
-        }
-        return null;
     }
 }

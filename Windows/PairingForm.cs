@@ -104,7 +104,10 @@ sealed class PairingForm : Form
 
 static class PairingUrl
 {
-    /// <summary>couchpad://pair?name=&lt;host&gt;&amp;addr=&lt;ip&gt;&amp;port=48123&amp;code=&lt;6 digits&gt;</summary>
-    public static string Make(string name, string? address, int port, string code) =>
-        $"couchpad://pair?name={Uri.EscapeDataString(name)}&addr={Uri.EscapeDataString(address ?? "")}&port={port}&code={code}";
+    /// <summary>couchpad://pair?name=&lt;host&gt;&amp;addr=&lt;ip&gt;&amp;port=48123&amp;code=&lt;6 digits&gt;[&amp;addrs=&lt;ip&gt;,&lt;ip&gt;…]
+    /// <c>addr</c> is the primary address; <c>addrs</c> lists the others (VPN tunnels and the like),
+    /// and is left out when there are none. Phones that predate it ignore it.</summary>
+    public static string Make(string name, IReadOnlyList<string> addresses, int port, string code) =>
+        $"couchpad://pair?name={Uri.EscapeDataString(name)}&addr={Uri.EscapeDataString(addresses.FirstOrDefault() ?? "")}&port={port}&code={code}"
+        + (addresses.Count > 1 ? $"&addrs={string.Join(",", addresses.Skip(1))}" : "");
 }

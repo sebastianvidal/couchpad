@@ -152,6 +152,10 @@ sealed class Server
                         lock (gate) authenticated.Add(client);
                         var hostProof = SecureChannel.Proof(issued, transcript, SecureChannel.HostTag);
                         await stream.WriteAsync(send.Seal($"ok {issued} windows {Convert.ToBase64String(hostProof)}"), token);
+                        // Every address this PC has, so the phone can still reach it away from home (VPN).
+                        var addresses = HostAddresses.IPv4();
+                        if (addresses.Count > 0)
+                            await stream.WriteAsync(send.Seal($"addrs {port} {string.Join(" ", addresses)}"), token);
                         Report();
                     }
                     else

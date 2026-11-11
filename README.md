@@ -107,12 +107,14 @@ Nothing to set up; install 1.5 over 1.4.
 
 Mac menu: connection status · Pair an iPhone… · address · Accessibility state · Launch at
 Login · Forget Paired iPhones. If Bonjour is blocked on your network, the QR pairing also
-carries the Mac's address, or add it by address in Settings → Connection on the phone.
+carries the Mac's addresses, or add it by address in Settings → Connection on the phone.
 
 **Several computers:** the phone keeps a profile for each one it has paired with; pick one
 from the dot's menu in the bar (it connects to that one only) or manage them in Settings →
-Connection. A profile has an optional address for VPN use (below); computers nearby that
-aren't paired yet are listed too, one tap to pair.
+Connection. A profile lists the ways to reach that computer, the local network and every
+address the phone learned from it (below), with a checkmark on the one in use; tap another
+to switch to it, or add an address the phone can't learn. Computers nearby that aren't
+paired yet are listed too, one tap to pair.
 
 ## Gestures
 
@@ -187,9 +189,11 @@ The code is only live while that window is open, for at most one minute, and for
 Each connection gets a single guess; three wrong guesses rotate the code and pause pairing for
 a few seconds. Pairing is the only way in: without a token, the host ignores everything.
 
-The QR carries the host's address (`couchpad://pair?name=…&addr=…&port=…&code=…`), so a QR
-pairing also works on networks that block Bonjour; the phone remembers the address and falls
-back to it when discovery finds nothing.
+The QR carries the host's addresses (`couchpad://pair?name=…&addr=…&port=…&code=…&addrs=…`),
+so a QR pairing also works on networks that block Bonjour, or over a VPN. After every
+successful sign-in the host also sends the phone its current IPv4 addresses, VPN tunnels
+included (an encrypted `addrs` line); the phone keeps them in the computer's profile and
+tries them all at once when discovery finds nothing.
 
 ## Away from home
 
@@ -201,14 +205,21 @@ and the session is still encrypted end to end inside the tunnel.
 
 1. Install Tailscale on the computer and the iPhone, same account. Each gets a stable
    `100.x.y.z` address.
-2. Pair at home over Wi-Fi as usual. One pairing serves every network.
-3. Gear → **Connection** → the computer → **Address**: type its Tailscale address
-   (`100.x.y.z`, or `host:port` for a port other than 48123). That's all: the phone uses the
-   local network when Bonjour finds the computer there and switches to the address by itself
-   when it doesn't (Bonjour doesn't cross a VPN): about a second after opening the app, a
-   few seconds after a connection drops. Back on the local network it moves back by itself
-   as soon as it finds the computer there. The status in the dot's menu shows the address
-   while it's in use.
+2. Pair at home over Wi-Fi as usual, with Tailscale running on the computer. One pairing
+   serves every network.
+3. That's all. Each time the phone connects, the computer tells it every address it has,
+   the Tailscale one included, and the phone keeps them (gear → **Connection** → the
+   computer shows the list). It uses the local network when Bonjour finds the computer
+   there and tries those addresses by itself when it doesn't (Bonjour doesn't cross a VPN):
+   about a second after opening the app, a few seconds after a connection drops. Back on
+   the local network it moves back by itself as soon as it finds the computer there. The
+   status in the dot's menu shows the address while one is in use.
+
+This needs the Mac app 1.8 or later (or a Windows build from the same date). With an older
+host, or for something the computer can't know about itself (a host name, a forwarded port),
+add the address in the profile (**Add an address…**): `100.x.y.z`, or `host:port` for a
+port other than 48123. If you set the VPN up after the phone last connected at home, connect
+at home once more so the phone learns the new address.
 
 Expect input to feel local and the picture to lag a little more than at home: the stream is
 tuned for a ~10 ms Wi-Fi round trip and backs off on a slower or lossier link, so it sends
@@ -216,8 +227,8 @@ fewer frames over cellular. Fine for desktop work, not yet a remote gaming link;
 tuning, and it's next. The computer has to be awake (System Settings → Energy, or Displays →
 Advanced → prevent sleep on power), and Couchpad can't wake it.
 
-Known rough edges: the QR carries the computer's home address, not the VPN one, so pair at
-home, or add the computer by its VPN address and pair through that. Don't port-forward 48123
+Pairing away from home works too: with both devices on the VPN, the QR carries the VPN
+address along with the home one. Don't port-forward 48123
 instead of a VPN: pairing would hold, but a VPN keeps the
 port off the internet entirely. Full walkthrough: https://sebastianvidal.github.io/couchpad/remote.html
 

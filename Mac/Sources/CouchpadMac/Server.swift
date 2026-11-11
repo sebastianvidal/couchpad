@@ -391,6 +391,9 @@ final class Server {
             if let video = session.video { videoSessions[video.streamID] = session }
             let hostProof = SecureChannel.proof(secret: token, transcript: transcript, side: SecureChannel.hostTag)
             try send("ok \(token) mac \(hostProof.base64EncodedString())", to: session)
+            // Every address this Mac has, so the phone can still reach it away from home (VPN).
+            let addresses = HostAddresses.ipv4()
+            if !addresses.isEmpty { try send("addrs \(port) \(addresses.joined(separator: " "))", to: session) }
             report()
         } else {
             // One guess per connection: say no, then hang up.

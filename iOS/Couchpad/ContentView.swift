@@ -843,7 +843,7 @@ struct ContentView: View {
                     // this network, and (if it has no address) nothing else to try.
                     Text(client.currentDeviceID == nil || client.macName.isEmpty
                          ? "Open Couchpad on your Mac or PC\n(same Wi-Fi)"
-                         : "Can't find \(client.macName). Is Couchpad open on it?\nAway from home, give it its VPN address in Settings → Connection.")
+                         : "Can't find \(client.macName). Is Couchpad open on it?\nAway from home, turn on your VPN. If it has never connected at home, add its address in Settings → Connection.")
                         .multilineTextAlignment(.center)
                         .font(.footnote)
                     // Side by side where they fit (portrait), stacked on a narrow trackpad
@@ -1068,7 +1068,7 @@ struct ContentView: View {
                     }
                 }
                 Section("Connection") {
-                    // Saved computers, each with its profile (name, VPN address, forget).
+                    // Saved computers, each with its profile (name, address override, forget).
                     ForEach(client.devices) { device in
                         NavigationLink {
                             DeviceView(client: client, id: device.id) { showSettings = false }
@@ -1121,7 +1121,7 @@ struct ContentView: View {
                 }
                 .disabled(HostAddress(newAddress) == nil)
             } message: {
-                Text("Its IP address or host name, with :port at the end if it isn't the usual one. For a computer on a VPN (Tailscale, WireGuard) or where the local network doesn't find it. If it's already paired, add the address to its profile above instead.")
+                Text("Its IP address or host name, with :port at the end if it isn't the usual one. For a computer the local network doesn't find. One that's already paired needs nothing typed: Couchpad learns its addresses, VPN ones included, each time it connects.")
             }
         }
     }

@@ -45,13 +45,32 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
 - Phone device profiles (`iOS/Couchpad/Devices.swift`): JSON array in UserDefaults `devices`,
   selection `selectedDevice`; one token per computer serves every route. The app connects
   only to the selected device: Bonjour service named `serviceName` if found (1 s grace at
-  launch), else `address` (`host`, `host:port`, `[v6]:port`; default 48123), else
-  `pairedAddress` (from the QR); failures, and attempts not connected in 2 s (service with an
-  address behind it) or 6 s, move to the next route. Foreground retries the service it was on
-  at once (`resumeService`), address after 1 s. Connected by address with the service listed,
+  launch), else its addresses (`Device.addressCandidates`: typed `address`, then
+  `knownAddresses` from the host, then `pairedAddress` from the QR). One address is opened
+  directly; several are raced (`startRace` in Client.swift: a silent TCP connection to each,
+  the first to connect gets the session, no winner in 6 s is a failed attempt). A winner
+  that never completes the handshake is left out of the next races (`leftOut`). A row
+  tapped in the profile (`DeviceView`, `Client.connect(_:by:)`) pins that route for the one
+  connection: no probe, no pre-empting by Bonjour, until it ends or fails. Failures,
+  and attempts not connected in 2 s (service with an address behind it) or 6 s, move to
+  the other kind of route. Foreground retries the service it was on at once
+  (`resumeService`), addresses after 1 s. Connected by address with the service listed,
   a silent TCP probe of the service moves the session over once it connects (retried every
   10 s; a move that fails before the handshake holds probes off for 60 s). Legacy `token.*`/
   `addr.*`/`preferredHost`/`manualHost` are migrated once (`DeviceStore.migrate`) and deleted.
+- Hosts announce their addresses: right after `ok`, one more encrypted line
+  `addrs <port> <ip> …` (IPv4 only, at most 8; `HostAddresses.swift` / `HostAddresses.cs`:
+  en* or Ethernet/Wi-Fi first, then tunnels, no loopback or 169.254). The pairing URL
+  carries the first as `addr` and the others as `addrs=a,b`. The phone takes the line only
+  after it has verified `ok`, validates strictly (`HostAddress.announced`: plain dotted
+  quads, never names) and replaces `knownAddresses` wholesale. Sent once per connection: a
+  VPN started later is learned on the next connection. Old phones ignore the line; old
+  hosts don't send it.
+- Testing the address race on a simulator: the stand-in host listens on loopback only and
+  the phone drops 127.0.0.1 from `addrs`, so a learned address needs a relay bound to one of
+  the Mac's other addresses (never port 48123). Seeding the simulator by writing the app's
+  plist doesn't take while its cfprefsd has the old copy cached: kill it after writing
+  (`kill $(pgrep -f "simruntime.*cfprefsd")`).
 - Testing input against the real Mac moves the user's cursor; keep it to a single swipe. Never
   run a stand-in host on port 48123 while the user may be using the app — their phone will
   connect to it.
@@ -233,4 +252,7 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
     program creating a CGVirtualDisplay works for experiments (see the header for the classes).
 
 ## Commits
-Attribution trailer per the session's reminder. Push to `main` directly; no PRs needed for now.
+Attribution trailer per the session's reminder. Development work goes on a branch with a
+pull request, not straight to `main` (decided November 2026: the project has grown, and
+several sessions sharing one checkout of `main` got in each other's way). One branch per
+piece of work; merge the PR once it is reviewed and tested.

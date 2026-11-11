@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 /// The port hosts listen on, and the one an address without `:port` means.
 let servicePort: UInt16 = 48123
@@ -9,8 +10,8 @@ enum HostPlatform: String, Codable { case mac, windows }
 /// serves all of them: hosts accept their tokens from any address, so the same Mac found on
 /// the local network and reached over a VPN is one device, not two.
 ///
-/// Routes, in the order they are tried (see `Client.pickRoute`): the Bonjour service called
-/// `serviceName`, when it is being found right now; `address`; `pairedAddress`.
+/// Routes (see `Client.pickRoute`): the Bonjour service called `serviceName`, when it is
+/// being found right now; else every address it is known by at once (`addressCandidates`).
 struct Device: Codable, Identifiable, Hashable {
     var id = UUID()
     /// The label in the menus. Starts as the service name (or the address), editable.
@@ -18,21 +19,26 @@ struct Device: Codable, Identifiable, Hashable {
     /// The Bonjour name it is found under on the local network; nil for a computer only ever
     /// reached by address.
     var serviceName: String?
-    /// Typed into its profile, for when it isn't on the same network: the address a VPN
-    /// (Tailscale, WireGuard) gives it. `host` or `host:port`; "" for none.
+    /// Typed into its profile, an override for what Couchpad can't learn (a host name, a
+    /// forwarded port). `host` or `host:port`; "" for none.
     var address = ""
-    /// The address a QR pairing carried (the computer's home address), the last resort.
+    /// The address a QR pairing carried (the computer's home address).
     var pairedAddress: String?
+    /// What the computer said it has, the last time it connected (`addrs`), VPN tunnels
+    /// included: how it is found away from home without anything typed. Written like
+    /// `HostAddress.string(host:port:)`.
+    var knownAddresses: [String] = []
     var token: String?
     /// From the last `ok`, so the pairing prompt names the right menu before it connects.
     var platform = HostPlatform.mac
 
     init(name: String, serviceName: String? = nil, address: String = "", pairedAddress: String? = nil,
-         token: String? = nil, platform: HostPlatform = .mac) {
+         knownAddresses: [String] = [], token: String? = nil, platform: HostPlatform = .mac) {
         self.name = name
         self.serviceName = serviceName
         self.address = address
         self.pairedAddress = pairedAddress
+        self.knownAddresses = knownAddresses
         self.token = token
         self.platform = platform
     }
@@ -45,8 +51,30 @@ struct Device: Codable, Identifiable, Hashable {
         serviceName = try c.decodeIfPresent(String.self, forKey: .serviceName)
         address = try c.decodeIfPresent(String.self, forKey: .address) ?? ""
         pairedAddress = try c.decodeIfPresent(String.self, forKey: .pairedAddress)
+        knownAddresses = (try? c.decodeIfPresent([String].self, forKey: .knownAddresses)) ?? []
         token = try c.decodeIfPresent(String.self, forKey: .token)
         platform = (try? c.decodeIfPresent(HostPlatform.self, forKey: .platform)) ?? .mac
+    }
+
+    /// Every address to try when the service isn't found, the typed one first, each once.
+    var addressCandidates: [String] {
+        Self.unique([address.trimmingCharacters(in: .whitespaces)] + learnedAddresses)
+    }
+
+    /// The ones nobody typed: what the computer reported, and its pairing QR code's.
+    var learnedAddresses: [String] {
+        Self.unique(knownAddresses + [pairedAddress].compactMap { $0 })
+    }
+
+    /// Valid addresses only, each once (`1.2.3.4` and `1.2.3.4:48123` are the same one).
+    private static func unique(_ texts: [String]) -> [String] {
+        var out: [String] = [], seen: [HostAddress] = []
+        for text in texts {
+            guard let parsed = HostAddress(text), !seen.contains(parsed) else { continue }
+            seen.append(parsed)
+            out.append(text)
+        }
+        return out
     }
 
     /// The name, or (emptied in its profile) what it is found by.
@@ -99,6 +127,28 @@ struct HostAddress: Equatable {
     static func string(host: String, port: UInt16) -> String {
         guard port != servicePort else { return host }
         return host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
+    }
+
+    /// The addresses a host announced (the `addrs` line, a pairing URL's `addrs`), as
+    /// `knownAddresses` keeps them. Strict, since they come off the wire: numeric IPv4
+    /// only (a name could resolve anywhere), no loopback, link-local, unspecified,
+    /// multicast or broadcast, no duplicates, at most 8.
+    static func announced(_ items: [String], port: UInt16) -> [String] {
+        guard port > 0 else { return [] }
+        var out: [String] = []
+        for item in items {
+            let octets = item.split(separator: ".", omittingEmptySubsequences: false)
+            // Plain dotted quads: no leading zeros (octal to some parsers), no short forms.
+            let plain = octets.allSatisfy { o in
+                (1...3).contains(o.count) && o.allSatisfy { ("0"..."9").contains($0) } && (o.count == 1 || o.first != "0")
+            }
+            guard octets.count == 4, plain, let ip = IPv4Address(item), !ip.isLoopback, !ip.isLinkLocal, !ip.isMulticast,
+                  ip != .any, ip != .broadcast else { continue }
+            let text = string(host: item, port: port)
+            if !out.contains(text) { out.append(text) }
+            if out.count == 8 { break }
+        }
+        return out
     }
 
     private static func port(_ text: Substring) -> UInt16? {

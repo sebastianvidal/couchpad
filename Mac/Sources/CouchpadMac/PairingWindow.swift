@@ -2,18 +2,23 @@ import AppKit
 import CoreImage
 
 /// Pairing payload shared by every host: the phone scans it, or opens it as a URL.
-///   couchpad://pair?name=<host name>&addr=<ip>&port=48123&code=<6 digits>
+///   couchpad://pair?name=<host name>&addr=<ip>&port=48123&code=<6 digits>[&addrs=<ip>,<ip>…]
+/// `addr` is the primary address; `addrs` lists the others (VPN tunnels and the like), and
+/// is left out when there are none. Phones that predate it ignore it.
 enum PairingURL {
-    static func make(name: String, address: String?, port: UInt16, code: String) -> String {
+    static func make(name: String, addresses: [String], port: UInt16, code: String) -> String {
         var components = URLComponents()
         components.scheme = "couchpad"
         components.host = "pair"
         components.queryItems = [
             URLQueryItem(name: "name", value: name),
-            URLQueryItem(name: "addr", value: address),
+            URLQueryItem(name: "addr", value: addresses.first),
             URLQueryItem(name: "port", value: String(port)),
             URLQueryItem(name: "code", value: code),
         ]
+        if addresses.count > 1 {
+            components.queryItems!.append(URLQueryItem(name: "addrs", value: addresses.dropFirst().joined(separator: ",")))
+        }
         return components.string ?? ""
     }
 }
