@@ -197,7 +197,9 @@ The first time a phone connects, it asks for a 6-digit code. "Pair an iPhone…"
 host's menu-bar or tray icon opens a window with a **QR code** and the digits: scan it with
 the Scan button in the app (or with the iPhone's Camera app, which opens Couchpad), or type
 the digits. The host then gives the phone a token it keeps, so the code is never needed again
-for that phone. Only phones with a token can send input.
+for that phone. Only phones with a token can send input. The first time it is connected, the
+phone shows a short tour over the live screen, one card per control (trackpad, the dot,
+the bar's buttons, settings); Settings → About → Take the tour shows it again.
 
 The code is only live while that window is open, for at most one minute, and for one pairing.
 Each connection gets a single guess; three wrong guesses rotate the code and pause pairing for
