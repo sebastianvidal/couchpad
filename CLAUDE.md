@@ -70,10 +70,9 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   the phone drops 127.0.0.1 from `addrs`, so a learned address needs a relay bound to one of
   the Mac's other addresses (never port 48123). Seeding the simulator by writing the app's
   plist doesn't take while its cfprefsd has the old copy cached: kill it after writing
-  (`kill $(pgrep -f "simruntime.*cfprefsd")`). The app's prefs are the plist in its data
-  container (`simctl get_app_container … data`, `Library/Preferences`), not what `simctl
-  spawn defaults` writes. A simulator with no saved computer connects to the first Mac it
-  finds on Bonjour, the user's real one included: seed an unreachable device (192.0.2.1) first.
+  (`kill $(pgrep -f "simruntime.*cfprefsd")`). A simulator with no saved computer connects
+  to the first host it finds on Bonjour (`autoConnect` in Client.swift), the user's real Mac
+  included: seed an unreachable device (192.0.2.1) first.
 - First-run tour (`iOS/Couchpad/TourView.swift`): coach marks over the live UI. Controls tag
   themselves with `.tourTarget(_:)` (anchor preferences); a step whose control has no anchor
   is skipped. Starts once, 0.6 s after the first `.paired` with no sheet up (`hasSeenTour`,
