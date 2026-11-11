@@ -42,6 +42,13 @@ struct ContentView: View {
     @State private var showAddAddress = false
     @State private var newAddress = ""
     @AppStorage("hasSeenSetup") private var hasSeenSetup = false
+    /// The tour over the live screen (TourView.swift): set when it starts, which it does by
+    /// itself the first time the phone is connected (`tourDue`), or from Settings → About.
+    @AppStorage("hasSeenTour") private var hasSeenTour = false
+    /// The tour's current step (an index into `TourStep.all`) while it runs.
+    @State private var tourStep: Int?
+    /// "Take the tour" was tapped: it starts once Settings has gone, connected or not.
+    @State private var tourRequested = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.displayScale) private var displayScale
     /// The window's full size (safe areas and keyboard included), measured from the root.
@@ -104,6 +111,7 @@ struct ContentView: View {
         // `ignoresKeyboard` for where avoidance stays.
         .ignoresSafeArea(ignoresKeyboard ? .keyboard : [])
         .ignoresSafeArea(.container, edges: panelEdges.union(isLandscape ? .bottom : []))
+        .tourOverlay(step: $tourStep, extendingInto: panelEdges.union(isLandscape ? .bottom : []))
         // Sideways, the layout runs into the home indicator's strip rather than leaving a
         // blank band under it; the indicator fades out of the way (a swipe still brings it back).
         .persistentSystemOverlays(isLandscape ? .hidden : .automatic)
@@ -151,6 +159,11 @@ struct ContentView: View {
             client.onScreenLoss = { screen.markLost() }
             client.startBrowsing()
             UIApplication.shared.isIdleTimerDisabled = true
+            // Someone who used the app before the tour existed knows their way around: no
+            // tour for them (Settings → About still has it).
+            if hasSeenSetup, UserDefaults.standard.object(forKey: "hasSeenTour") == nil, !client.devices.isEmpty {
+                hasSeenTour = true
+            }
             if !hasSeenSetup {
                 showSetup = true
                 hasSeenSetup = true
@@ -169,6 +182,19 @@ struct ContentView: View {
         .onChange(of: showSetup) { _, _ in syncKeyboardSuspension() }
         .onChange(of: showSettings) { _, _ in syncKeyboardSuspension() }
         .onChange(of: showScanner) { _, _ in syncKeyboardSuspension() }
+        .onChange(of: tourStep != nil) { _, _ in syncKeyboardSuspension() }
+        .onChange(of: tourDue, initial: true) { _, due in
+            guard due else { return }
+            // A beat first, for the layout to settle (a sheet sliding away, the bar filling
+            // in as the connection comes up), then only if it is still due.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                guard tourDue else { return }
+                tourRequested = false
+                hasSeenTour = true
+                inputState.keyboardShown = false
+                withAnimation(UIAccessibility.isReduceMotionEnabled ? nil : .easeInOut(duration: 0.25)) { tourStep = 0 }
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
             guard let screenFrame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
             // The frame is in screen coordinates and the layout works in the window's: they
@@ -687,11 +713,13 @@ struct ContentView: View {
                     .frame(maxHeight: .infinity)
             }
             .accessibilityLabel(screen.health.map { "\(client.status). Stream \($0.ok ? "healthy" : "struggling"): \($0.summary)" } ?? client.status)
+            .tourTarget(.status)
             if screenAvailable, client.isConnected {
                 barButton(picture ? "display.2" : "display",
                           label: picture ? "Hide the computer's screen" : "Show the computer's screen") {
                     settings.showScreen.toggle()
                 }
+                .tourTarget(.screen)
             }
             // The key row, everywhere at once: docked under the trackpad or picture, at the
             // top of the pad, over the picture with the overlaid pad, or (half open upright
@@ -700,6 +728,7 @@ struct ContentView: View {
                       label: settings.showKeyRow ? "Hide key row" : "Show key row") {
                 settings.showKeyRow.toggle()
             }
+            .tourTarget(.keyRow)
             // With the pad on, the iOS keyboard takes the pad's place (only its key row
             // stays, when on) until it is dismissed.
             // Both symbols are always there and only their opacity changes: the bar slides
@@ -715,6 +744,7 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(inputState.keyboardShown ? "Hide keyboard" : "Show keyboard")
+            .tourTarget(.keyboard)
             if client.isConnected {
                 // Both symbols always there, like the keyboard button's: upright with the
                 // keyboard up, the bar slides down as the pad comes.
@@ -732,8 +762,9 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(settings.showController ? "Hide the on-screen controller" : "Show the on-screen controller")
+                .tourTarget(.controller)
             }
-            mouseButtons
+            mouseButtons.tourTarget(.mouse)
             // On a phone-wide window the mark would squeeze the mouse buttons to "L…" and
             // "Ri…"; the dot's menu names the controller instead.
             if controller.controllerName != nil, windowSize.width >= 500 {
@@ -747,6 +778,7 @@ struct ContentView: View {
                 barButton("questionmark.circle", label: "Setup guide") { showSetup = true }
             }
             barButton("gearshape", label: "Settings") { showSettings = true }
+                .tourTarget(.settings)
         }
         .frame(height: 36)
         .background(keyInput)   // zero footprint: the iOS keyboard still needs its owner on screen
@@ -924,6 +956,9 @@ struct ContentView: View {
             }
         }
         .frame(maxHeight: .infinity)
+        // Half open, the tour shows the plain trackpad on the flat half when there is one,
+        // not the picture's half.
+        .tourTarget(.trackpad, enabled: !(picture && hingeLayout && !settings.showController && !hingeTypingUpright))
     }
 
     /// Takes the picture's pane's size: the stream is sized to it (`trackpadPixels`), and with
@@ -1065,9 +1100,17 @@ struct ContentView: View {
         .padding(20)
     }
 
-    /// The iOS keyboard would otherwise sit on top of any sheet we present.
+    /// The iOS keyboard would otherwise sit on top of any sheet we present, or on the tour.
     private func syncKeyboardSuspension() {
-        inputState.suspended = showSetup || showSettings || showScanner
+        inputState.suspended = showSetup || showSettings || showScanner || tourStep != nil
+    }
+
+    /// Whether the tour should start now: asked for from Settings, or never seen and the
+    /// phone connected for the first time; either way with no sheet up. A sheet that is up
+    /// when the phone connects holds it back until it closes.
+    private var tourDue: Bool {
+        (tourRequested || (!hasSeenTour && client.phase == .paired))
+            && tourStep == nil && !showSetup && !showSettings && !showScanner
     }
 
     private func submitPairingCode() {
@@ -1192,6 +1235,7 @@ struct ContentView: View {
                     Text(client.status).font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("About") {
+                    Button("Take the tour") { tourRequested = true; showSettings = false }
                     Button("Setup guide & gestures") { showSettings = false; showSetup = true }
                     Link("Get the free Mac / Windows app", destination: Links.macDownload)
                     Link("Privacy policy", destination: Links.privacy)
