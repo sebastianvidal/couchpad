@@ -11,9 +11,11 @@ between, on your Wi-Fi or through your VPN.
 **Status (November 2026)**
 - **iPhone:** public **TestFlight beta** — https://testflight.apple.com/join/kY67K51G — ahead
   of a free App Store release. Supports iPhone Duo, folded or unfolded, in both orientations.
-- **Mac:** **1.7 released**, signed and notarized —
-  [download](https://github.com/sebastianvidal/couchpad/releases/latest). 1.7 keeps the picture
-  going with a MacBook's lid closed (see [What's new in Mac 1.7](#whats-new-in-mac-17));
+- **Mac:** **1.8 released**, signed and notarized —
+  [download](https://github.com/sebastianvidal/couchpad/releases/latest). 1.8 tells the phone
+  every address the Mac has, VPN ones included, so reaching it away from home needs nothing
+  typed (see [What's new in Mac 1.8](#whats-new-in-mac-18));
+  1.7 keeps the picture going with a MacBook's lid closed;
   1.6 sends the Mac's sound to the phone with the picture;
   1.5 keeps the picture smooth when a game goes fullscreen;
   1.4 keeps it smooth when a phone's connection drops and comes back, and brings it back
@@ -56,6 +58,18 @@ between, on your Wi-Fi or through your VPN.
 
 Site: https://sebastianvidal.github.io/couchpad/
 
+## What's new in Mac 1.8
+
+Away from home, nothing to type. Each time a paired phone connects, the Mac now tells it
+every address it has, the VPN one (Tailscale, WireGuard) included. The phone keeps them in
+the computer's profile and, when it doesn't find the Mac on the local network, tries them
+all at once and uses the first that answers. Before, you had to look up the Mac's VPN
+address and type it into the phone. The pairing QR carries the same addresses, so pairing
+for the first time works with both devices on the VPN, and the menu's address line lists
+them all. It needs an iPhone build with the new Connections list in a computer's profile
+(the next TestFlight build); older builds ignore the addresses and work as before. Install
+1.8 over 1.7; pairings are kept.
+
 ## What's new in Mac 1.7
 
 The picture keeps going with a MacBook's lid closed, on the charger. Closed, with no monitor,
@@ -96,7 +110,7 @@ Nothing to set up; install 1.5 over 1.4.
 1. **iPhone:** install [TestFlight](https://apps.apple.com/app/testflight/id899247664), then
    open https://testflight.apple.com/join/kY67K51G on the phone and tap Install. Allow
    **Local Network** when asked, otherwise the app can't find your computer.
-2. **Mac:** download `Couchpad-1.7.dmg` from
+2. **Mac:** download `Couchpad-1.8.dmg` from
    [Releases](https://github.com/sebastianvidal/couchpad/releases/latest), drag Couchpad to
    Applications, open it. A cursor icon appears in the menu bar. Grant **Accessibility** when
    macOS asks (System Settings → Privacy & Security → Accessibility); that permission is what
