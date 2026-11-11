@@ -42,10 +42,14 @@ struct ControllerView: View {
     @State private var showF = false
     /// The strip is a different view in the pad and while typing; this ties the two, so when
     /// the keyboard comes or goes the row slides to its new place instead of one copy fading
-    /// out while another fades in.
-    @Namespace private var stripSpace
+    /// out while another fades in. Upright the layout hands in its own (`stripSpace`), which
+    /// its docked key row shares, so the row travels the same way when the pad comes or goes.
+    @Namespace private var ownStripSpace
+    var stripSpace: Namespace.ID? = nil
+    private var strips: Namespace.ID { stripSpace ?? ownStripSpace }
 
-    private let gap: CGFloat = 4
+    private static let gap: CGFloat = 4
+    private var gap: CGFloat { Self.gap }
     /// The eight programmable keys, in the band's row order: labelled by what they do,
     /// tagged with the pad control they are.
     static let topRow: [(Control, String)] = [(.l1, "L1"), (.l2, "L2"), (.l3, "L3"), (.menu, "menu"), (.options, "opt"), (.r3, "R3"), (.r1, "R1"), (.r2, "R2")]
@@ -58,8 +62,25 @@ struct ControllerView: View {
     private static let controlByCode: [Int: Control] = Dictionary(uniqueKeysWithValues: padKeys.map { ($1.code, $0) })
     private static func code(_ control: Control) -> Int { padKeys.first { $0.0 == control }!.1.code }
 
-    private let barHeight: CGFloat = 28   // the strip's F bar
-    private let blockGap: CGFloat = 6     // between the strip and the pad, like every other block
+    private static let barHeight: CGFloat = 28   // the strip's F bar
+    private static let blockGap: CGFloat = 6     // between the strip and the pad, like every other block
+    private var barHeight: CGFloat { Self.barHeight }
+    private var blockGap: CGFloat { Self.blockGap }
+
+    /// The tall layout's row height when it fills `size` (no `rowHeight`): key-shaped, about
+    /// a seventh of the height (see `tallBody`).
+    private static func fillingRow(in size: CGSize) -> CGFloat {
+        let unit = (size.width - gap * 6) / 7
+        let strip = barHeight + gap + blockGap   // the strip's bar and gaps; its row is a row
+        return min(unit * 1.2, max(28, (size.height - strip - 2 * gap) / 6.75))
+    }
+
+    /// Where the controls under the strip begin in the tall pad filling `size`, the strip
+    /// and the block gap above them (with F1–F12 closed); 0 with the key row off. Upright,
+    /// the pad button's move opens the pad from there down (ContentView's `PadSlideEffect`).
+    static func controlsTop(in size: CGSize, showKeys: Bool) -> CGFloat {
+        showKeys ? barHeight + gap + fillingRow(in: size) + blockGap : 0
+    }
 
     /// Tall: five rows (shoulders, three for the stick and the diamond, centre keys) and the
     /// air under them, plus the strip's F bar and key row when shown. Wide: one band, three
@@ -118,7 +139,7 @@ struct ControllerView: View {
             row = min(unit * 1.2, max(28, (size.height - barHeight - 2 * gap) / 2))
         }
         return KeyStripView(client: client, state: state, rowHeight: row, showFExternal: $showF)
-            .matchedGeometryEffect(id: "strip", in: stripSpace)
+            .matchedGeometryEffect(id: "strip", in: strips)
     }
 
     /// Laid out like a hand-held console's controls, top to bottom: the strip's F bar and
@@ -145,7 +166,7 @@ struct ControllerView: View {
         if let rowHeight {
             row = min(unit * 1.2, (3 * rowHeight + barHeight) / 4)
         } else {
-            row = min(unit * 1.2, max(28, (size.height - strip - 2 * gap) / 6.75))
+            row = Self.fillingRow(in: size)
         }
         let foot = tallFoot(row)   // under the centre keys, off the pad's bottom edge
         // Between the shoulders and the centre keys, the stick and the diamond: three rows
@@ -182,7 +203,7 @@ struct ControllerView: View {
                     // With F1–F12 open the F rows reach down to where the shoulder keys sat,
                     // which are a little further from the strip than the gap between rows.
                     KeyStripView(client: client, state: state, rowHeight: row, showFExternal: $showF)
-                        .matchedGeometryEffect(id: "strip", in: stripSpace)
+                        .matchedGeometryEffect(id: "strip", in: strips)
                         .padding(.bottom, showF ? blockGap - gap : 0)
                 }
                 if !(showKeys && showF) {
@@ -269,7 +290,7 @@ struct ControllerView: View {
             VStack(spacing: gap) {
                 if showKeys {
                     KeyStripView(client: client, state: state, rowHeight: keyRow, showFExternal: $showF)
-                        .matchedGeometryEffect(id: "strip", in: stripSpace)
+                        .matchedGeometryEffect(id: "strip", in: strips)
                 }
                 if !(showKeys && showF) {
                     HStack(spacing: gap) {

@@ -27,6 +27,14 @@ struct ContentView: View {
     /// and says whether it is only the stand-in worked out with the keyboard up
     /// (`measurePane`). In a box, like `resizeSettle`.
     @State private var restingSettle = RestingSettle()
+    /// Upright, the pad coming or going with the bar's pad button (`togglePadUpright`): read
+    /// by the pad's transition while it runs. In a box, like `resizeSettle`: a pad that is
+    /// going away keeps the transition it had before the tap, so the transition looks the
+    /// value up as it runs instead of being built with it.
+    @State private var padSlide = PadSlideBox()
+    /// Ties the docked key row to the pad's strip upright, so the one row travels between
+    /// its two places when the pad comes or goes (see ControllerView's own `stripSpace`).
+    @Namespace private var stripSpace
 
     @State private var showSettings = false
     @State private var pairingCode = ""
@@ -421,11 +429,12 @@ struct ContentView: View {
                 if padOnScreen {
                     portraitPad(height: geo.size.height - inset - 36 - 6)
                 } else if keyRowDocked {
-                    keyRow
+                    portraitKeyRow
                 }
                 bar(picture: false)
             }
             .padding(.bottom, inset)
+            .onChange(of: inset, initial: true) { _, inset in padSlide.inset = inset }
         }
         .padding(.top, 4)
     }
@@ -434,11 +443,24 @@ struct ContentView: View {
     /// fills it like the flat half of a half-open Duo: keys key-shaped, the room left over
     /// going to the stick and the air around it; the picture or trackpad gets the top half.
     /// While the iOS keyboard is up the pad is only the key row, sized as it always was.
+    /// The pad button brings it in and out with `PadSlideTransition`; the key row docked in its
+    /// place shares the strip's `matchedGeometryEffect` (`portraitKeyRow`).
     private func portraitPad(height available: CGFloat) -> some View {
         let typing = inputState.keyboardShown
         return ControllerView(controller: controller, client: client, state: inputState,
-                              rowHeight: typing ? portraitRowHeight : nil, showKeys: settings.showKeyRow)
+                              rowHeight: typing ? portraitRowHeight : nil, showKeys: settings.showKeyRow,
+                              stripSpace: stripSpace)
             .frame(height: typing ? nil : max(0, (available - 6) / 2))
+            .transition(PadSlideTransition(box: padSlide))
+    }
+
+    /// The key row docked upright with the pad off: as far as the pad button's move goes, the
+    /// same row as the pad's strip (`stripSpace`), and the one that is seen travelling both
+    /// ways, down from the strip and up to it (`PadSlideEffect` masks the pad's own).
+    private var portraitKeyRow: some View {
+        keyRow
+            .matchedGeometryEffect(id: "strip", in: stripSpace)
+            .transition(KeyRowSlideTransition())
     }
 
     /// The screen layout's skeleton without the picture: the trackpad full width, the key
@@ -587,11 +609,12 @@ struct ContentView: View {
                         portraitPad(height: availableHeight)
                     }
                 } else if keyRowDocked {
-                    keyRow
+                    if isLandscape { keyRow } else { portraitKeyRow }
                 }
                 bar(picture: true)
             }
             .padding(.bottom, inset)
+            .onChange(of: inset, initial: true) { _, inset in padSlide.inset = inset }
         }
         .padding(.top, 4)
     }
@@ -693,10 +716,22 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(inputState.keyboardShown ? "Hide keyboard" : "Show keyboard")
             if client.isConnected {
-                barButton(settings.showController ? "dpad.fill" : "dpad",
-                          label: settings.showController ? "Hide the on-screen controller" : "Show the on-screen controller") {
-                    settings.showController.toggle()
+                // Both symbols always there, like the keyboard button's: upright with the
+                // keyboard up, the bar slides down as the pad comes.
+                Button {
+                    if isLandscape || hingeLayout {
+                        settings.showController.toggle()
+                    } else {
+                        togglePadUpright()
+                    }
+                } label: {
+                    barIcon(ZStack {
+                        Image(systemName: "dpad").opacity(settings.showController ? 0 : 1)
+                        Image(systemName: "dpad.fill").opacity(settings.showController ? 1 : 0)
+                    })
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(settings.showController ? "Hide the on-screen controller" : "Show the on-screen controller")
             }
             mouseButtons
             // On a phone-wide window the mark would squeeze the mouse buttons to "L…" and
@@ -715,6 +750,29 @@ struct ContentView: View {
         }
         .frame(height: 36)
         .background(keyInput)   // zero footprint: the iOS keyboard still needs its owner on screen
+    }
+
+    /// Upright, the pad button moves the layout the way the keyboard does, with its spring:
+    /// the pane's bottom edge and the key row travel, the pad opens or closes between them
+    /// (`PadSlideEffect`). A keyboard that is up goes down in the same move (the setting's onChange
+    /// would put it away too, a step later and without the animation). Sideways and half open
+    /// the pad still just appears, and so does it from the Settings sheet.
+    private func togglePadUpright() {
+        padSlide.sliding = true
+        padSlide.move += 1
+        let move = padSlide.move
+        padSlide.rise = padSlide.inset
+        padSlide.showKeys = settings.showKeyRow
+        padSlide.fromTyping = settings.showController && inputState.keyboardShown
+        // `.removed`, not the default: a spring is "logically complete" well inside its tail,
+        // and ending the move there showed the pad whole, its strip over the travelling row.
+        withAnimation(.keyboard, completionCriteria: .removed) {
+            inputState.keyboardShown = false
+            settings.showController.toggle()
+        } completion: {
+            // A second tap before this one ended has started a move of its own, which ends it.
+            if padSlide.move == move { padSlide.sliding = false }
+        }
     }
 
     private func barButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
@@ -874,7 +932,12 @@ struct ContentView: View {
     private func measurePane(_ size: CGSize, keyboardPushes: Bool, keyboardInset: CGFloat) {
         var height = size.height
         if keyboardPushes, !inputState.keyboardShown {
-            if restingPaneWindow == windowSize, size.height < restingPaneHeight, !restingSettle.standIn {
+            // Not during the pad button's move (`togglePadUpright`): there the pane really is
+            // getting shorter, and with the keyboard put away in the same move the picture is
+            // held at the resting height until the pane gets there, so it has to be the new
+            // one from the start. Held at the old one, the picture would stay cut off above a
+            // pane now too short for it and snap to fit a second later.
+            if restingPaneWindow == windowSize, size.height < restingPaneHeight, !restingSettle.standIn, !padSlide.sliding {
                 // Lowered only once the layout has settled. Just after the keyboard was put
                 // away the pane reports sizes it does not keep: first the keyboard-up one (the
                 // pane's onChange runs before the new layout), then, sideways, one 34 pt short
@@ -1206,6 +1269,102 @@ private final class RequestBox {
 /// A pending task held by reference, so replacing it does not count as a state change.
 private final class TaskBox {
     var task: Task<Void, Never>?
+}
+
+/// The pad button's move upright (`togglePadUpright`), held by reference like `TaskBox`:
+/// whether it is running and what it started from, for the transitions to look up as they
+/// run (see `padSlide`), and the layout's current keyboard inset to take `rise` from.
+private final class PadSlideBox {
+    var sliding = false
+    /// Counts the moves, so that one overtaken by the next does not end it.
+    var move = 0
+    /// How far above the pad's bottom edge the bar started: the keyboard's inset when the
+    /// move also puts the keyboard away. 0 otherwise.
+    var rise: CGFloat = 0
+    /// The key row was on (the pad has a strip at its top).
+    var showKeys = true
+    /// The pad was only its key row, the iOS keyboard in its place.
+    var fromTyping = false
+    var inset: CGFloat = 0
+}
+
+/// How the upright pad comes and goes (`PadSlideEffect`).
+private struct PadSlideTransition: Transition {
+    let box: PadSlideBox
+
+    func body(content: Content, phase: TransitionPhase) -> some View {
+        content.modifier(PadSlideEffect(progress: phase.isIdentity ? 1 : 0, leaving: phase == .didDisappear, box: box))
+    }
+}
+
+/// During the pad button's move (`PadSlideBox.sliding`) the pad keeps still and shows only
+/// a band of itself that opens with the move: from where the bar started (its bottom edge,
+/// or above it by the keyboard's inset) up to just under the key row as it travels to the
+/// pad's top, and down to the bar as it rides down. Closing, it shuts towards the bottom
+/// edge behind the key row coming down. Everything else of the pad is masked, its own
+/// strip included: the docked key row is the copy that travels (`portraitKeyRow`), tied to
+/// the strip's place by `matchedGeometryEffect`, and the two swap where they coincide.
+/// Any other time it is the plain fade the pad always had (the keyboard putting the pad
+/// away with the key row off, or bringing it back), which the keyboard covers.
+/// The mask is always there, the whole pad when nothing moves, so the pad's views keep
+/// their identity (its keys' touch overlay was once lost that way, see ControllerView).
+/// Done here rather than inside the pad: a view on its way out is not updated any more, so
+/// a value handed down to it would stay as it was at the tap.
+private struct PadSlideEffect: ViewModifier, Animatable {
+    var progress: CGFloat
+    let leaving: Bool
+    let box: PadSlideBox
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let sliding = box.sliding
+        content
+            .opacity(sliding ? 1 : progress)
+            .mask {
+                GeometryReader { geo in
+                    let height = geo.size.height
+                    let p = min(1, max(0, progress))
+                    if !sliding || p >= 1 {
+                        Rectangle().padding(-1000)
+                    } else if leaving && box.fromTyping {
+                        // Only the key row was left of it, and the docked one takes over.
+                        Color.clear
+                    } else {
+                        let start = leaving ? height : height - box.rise
+                        let top = start + (ControllerView.controlsTop(in: geo.size, showKeys: box.showKeys) - start) * p
+                        let bottom = start + (height - start) * p
+                        Rectangle()
+                            .frame(width: geo.size.width + 200, height: max(0, bottom - top))
+                            .offset(x: -100, y: top)
+                    }
+                }
+            }
+    }
+}
+
+/// The docked key row upright while the pad button's move brings the pad: it stays in
+/// sight to the end, travelling up to the pad's strip, and goes once the two coincide.
+private struct KeyRowSlideTransition: Transition {
+    func body(content: Content, phase: TransitionPhase) -> some View {
+        content.modifier(KeyRowSlideEffect(progress: phase == .didDisappear ? 0 : 1))
+    }
+}
+
+private struct KeyRowSlideEffect: ViewModifier, Animatable {
+    var progress: CGFloat
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content.opacity(progress > 0 ? 1 : 0)
+    }
 }
 
 /// The resting height's settle wait and where the height came from (see `measurePane`),
