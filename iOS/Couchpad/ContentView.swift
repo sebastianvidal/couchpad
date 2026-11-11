@@ -23,6 +23,10 @@ struct ContentView: View {
     @State private var lastScreenRequest = RequestBox()
     /// The picture's pane's last measured size (`measurePane`).
     @State private var paneSize = SizeBox()
+    /// Waits for the keyboard-down layout to settle before `restingPaneHeight` is lowered,
+    /// and says whether it is only the stand-in worked out with the keyboard up
+    /// (`measurePane`). In a box, like `resizeSettle`.
+    @State private var restingSettle = RestingSettle()
 
     @State private var showSettings = false
     @State private var pairingCode = ""
@@ -819,7 +823,9 @@ struct ContentView: View {
                     measurePane(size, keyboardPushes: keyboardPushes, keyboardInset: keyboardInset)
                 }
                 // The window and the keyboard too: rotated, the pane can report its size
-                // before `windowSize` has caught up.
+                // before `windowSize` has caught up. (With the keyboard just gone, this hands
+                // over the keyboard-up size; `measurePane` does not lower the resting height
+                // on it.)
                 .onChange(of: PaneMeasure(window: windowSize, keyboardPushes: keyboardPushes, keyboardDown: keyboardDown)) { _, _ in
                     guard picture, paneSize.size != .zero else { return }
                     measurePane(paneSize.size, keyboardPushes: keyboardPushes, keyboardInset: keyboardInset)
@@ -868,16 +874,40 @@ struct ContentView: View {
     private func measurePane(_ size: CGSize, keyboardPushes: Bool, keyboardInset: CGFloat) {
         var height = size.height
         if keyboardPushes, !inputState.keyboardShown {
-            if restingPaneHeight != size.height { restingPaneHeight = size.height }
-            if restingPaneWindow != windowSize { restingPaneWindow = windowSize }
+            if restingPaneWindow == windowSize, size.height < restingPaneHeight, !restingSettle.standIn {
+                // Lowered only once the layout has settled. Just after the keyboard was put
+                // away the pane reports sizes it does not keep: first the keyboard-up one (the
+                // pane's onChange runs before the new layout), then, sideways, one 34 pt short
+                // (the home indicator's strip, which the layout counts as safe area while the
+                // keyboard is up and gives back a moment later), and only then the real one.
+                // Taken as the resting height, they shrank the picture at once, the push let
+                // go when the pane got there, and the picture grew back with the pane. A pane
+                // that really got shorter (the pad band coming back) keeps the old height a
+                // second longer, which only shows if the keyboard comes back up within it.
+                restingSettle.task?.cancel()
+                restingSettle.task = Task {
+                    try? await Task.sleep(for: .seconds(1))
+                    guard !Task.isCancelled, !inputState.keyboardShown, restingPaneWindow == windowSize else { return }
+                    let settled = paneSize.size.height
+                    if settled > 0, restingPaneHeight != settled { restingPaneHeight = settled }
+                }
+            } else {
+                restingSettle.task?.cancel()
+                restingSettle.standIn = false
+                if restingPaneHeight != size.height { restingPaneHeight = size.height }
+                if restingPaneWindow != windowSize { restingPaneWindow = windowSize }
+            }
         } else if keyboardPushes {
             // The keyboard is up and this window has no keyboard-down measurement (the
             // keyboard was up when the picture appeared, or came up again right after a
             // rotation): the pane plus what the layout took off for the keyboard stands in for
             // it. Off by whatever rows come and go with the keyboard, and replaced by the real
-            // thing when the keyboard next goes down; without it the picture would shrink above
-            // the keyboard and a keyboard-sized stream would be asked for.
+            // thing when the keyboard next goes down, at once, even when that is lower (it is
+            // no measurement to hold on to); without it the picture would shrink above the
+            // keyboard and a keyboard-sized stream would be asked for.
             if restingPaneWindow != windowSize {
+                restingSettle.task?.cancel()
+                restingSettle.standIn = true
                 restingPaneHeight = size.height + keyboardInset
                 restingPaneWindow = windowSize
             }
@@ -1176,4 +1206,11 @@ private final class RequestBox {
 /// A pending task held by reference, so replacing it does not count as a state change.
 private final class TaskBox {
     var task: Task<Void, Never>?
+}
+
+/// The resting height's settle wait and where the height came from (see `measurePane`),
+/// held by reference like `TaskBox`.
+private final class RestingSettle {
+    var task: Task<Void, Never>?
+    var standIn = false
 }
