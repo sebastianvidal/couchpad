@@ -246,7 +246,8 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
     (`isStandIn`: vendor/model/serial all 0), not the built-in behind a closed lid
     (`realScreenOn`). So a desktop Mac with no monitor counts too; lid open (built-in online,
     asleep or not) never does. The battery rule applies only with the lid closed.
-  - **Where it goes (legacy, phone sent no `v d`):** just after closing, the built-in display is still active. The virtual
+  - **Where it goes (legacy, phone sent no `v d`):** just after closing, the built-in display
+    is still active. The virtual
     one then mirrors it, so the capture stays on the main (built-in) display and nothing moves.
     Made as an extended display it sits at x = -1440 with an empty desktop, which is what the
     phone showed. Closed for a while, the built-in drops out and macOS has a 1920×1080
@@ -269,6 +270,8 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
     the other serial (1/2) before the old one goes, then arrange, then the stream restarts
     (which refreshes `displayBounds` for the absolute pointer). No `v d` from any watching
     phone: back to legacy 1440×900.
+    `fixModeIfAlone` switches the mode at most twice per size, so a switch that doesn't
+    stick can't restart the stream forever.
   - **Logs:** the host logs `Screen: no screen of its own …`, `Screen: virtual display is …`
     (says whether it is the main display), `wants a WxH desktop`, and the first 3 s of frame
     statuses.

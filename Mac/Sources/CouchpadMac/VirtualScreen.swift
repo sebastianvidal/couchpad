@@ -75,7 +75,11 @@ final class VirtualScreen {
     private var serial: UInt32 = 1
     var displayID: CGDirectDisplayID? { display?.displayID }
     /// The size its modes were last given.
-    private(set) var size = VirtualScreen.legacySize
+    private(set) var size = VirtualScreen.legacySize { didSet { modeFixes = 0 } }
+    /// How often `fixModeIfAlone` switched the mode at this size. Twice is the limit: a
+    /// switch that reports success but does not stick (a mirror set holding the mode, say)
+    /// would otherwise restart the stream every half second and the phone would get nothing.
+    private var modeFixes = 0
     /// Moves whenever the screen is added or removed, so steps scheduled for one screen
     /// never act on the next.
     private(set) var generation = 0
@@ -276,7 +280,8 @@ final class VirtualScreen {
     func fixModeIfAlone() -> Bool {
         guard let id = displayID, CGMainDisplayID() == id, CGDisplayMirrorsDisplay(id) == kCGNullDirectDisplay,
               let mode = CGDisplayCopyDisplayMode(id), mode.pixelWidth != size.width * 2 || mode.width != size.width || mode.height != size.height,
-              offersMode(size) else { return false }
+              offersMode(size), modeFixes < 2 else { return false }
+        modeFixes += 1
         return useHiDPIMode()
     }
 
