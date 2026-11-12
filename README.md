@@ -51,6 +51,11 @@ between, on your Wi-Fi or through your VPN.
   lets the built-in display go, the virtual one becomes the screen, 16:10 like a 13-inch
   MacBook. It goes away when the lid opens, or five minutes after the last phone stops
   watching. On battery macOS sleeps a closed Mac no matter what, so the phone says to plug it in.
+- **Coming in the next Mac and iPhone builds (in development, not released):** with no screen
+  of its own (lid closed and no monitor, or a Mac with no monitor at all) the Mac's desktop
+  takes the shape of the phone's picture, upright or sideways, folded or unfolded, and is
+  laid out on the virtual display with bigger text; Settings → Screen sets how big. With a
+  monitor attached or the lid open nothing changes.
 - **New on iPhone 1.3:** sideways, the pad and the key row can float over the picture
   (Settings → Pad over the picture), with their opacity set in Settings → Overlay opacity.
 - **Also:** confirmed working **over cellular through Tailscale**, screen included, with

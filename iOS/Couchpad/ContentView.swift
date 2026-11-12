@@ -21,6 +21,9 @@ struct ContentView: View {
     /// in, so that a resize that needs no bigger picture asks for nothing (`syncScreen`).
     /// In a box, like `resizeSettle`, so that remembering it is no state change.
     @State private var lastScreenRequest = RequestBox()
+    /// The last `v d` sent and the keyboard-down pane it came from (`sendDesk`). In a box,
+    /// like `lastScreenRequest`.
+    @State private var desk = DeskBox()
     /// The picture's pane's last measured size (`measurePane`).
     @State private var paneSize = SizeBox()
     /// Waits for the keyboard-down layout to settle before `restingPaneHeight` is lowered,
@@ -295,6 +298,10 @@ struct ContentView: View {
         }
         .onChange(of: inputState.keyboardShown) { _, _ in keyboardToggledAt = Date() }
         .onChange(of: settings.screenQuality) { _, _ in syncScreen() }
+        .onChange(of: settings.headlessTextSize) { _, _ in
+            // Only the Mac's desktop changes; the stream stays as it is.
+            if client.isConnected, screenOn, trackpadPixels.width > 0 { sendDesk() }
+        }
         .onChange(of: screenZoom) { _, _ in
             // Zoomed in, the pane's pixels are spread thin: once the fingers settle, ask for
             // a stream with that many more pixels (the host caps it at the display's own).
@@ -385,11 +392,16 @@ struct ContentView: View {
     private func syncScreen(resized: Bool = false) {
         guard client.isConnected else {
             lastScreenRequest.size = nil
+            desk.sent = nil   // a new connection is a new session on the host: say it again
             screen.reset()
             client.setSound(false)
             return
         }
         if screenOn, trackpadPixels.width > 0 {
+            // Ahead of `v 1`, so a Mac with no screen makes its display in this shape from the
+            // start, and ahead of the early return below: a pane that only shrank still has a
+            // new shape.
+            sendDesk()
             let share = [0.5, 2.0 / 3.0, 1.0][max(0, min(2, settings.screenQuality))]
             // 60 fps: a change waits half as long for the next capture, and the phone's
             // display shows it on the next refresh. Bandwidth roughly doubles; still a few Mbps.
@@ -411,6 +423,30 @@ struct ContentView: View {
             client.setSound(false)
             screen.reset()
         }
+    }
+
+    /// Tells the host the desktop this phone would like when it is the Mac's only screen (lid
+    /// closed and no monitor, or a desktop Mac without one): `v d <width> <height>` in points,
+    /// the picture's pane with the keyboard down times the text-size setting's scale. Hosts
+    /// with a screen of their own, old hosts and Windows ignore it. Sent only when it changes.
+    /// The keyboard never changes it: the whole Mac desktop reflowing as you start typing
+    /// would be awful. In the screen layout the pane is already held at its keyboard-down
+    /// height while the keyboard is up (`measurePane`); half open, where nothing holds it,
+    /// the last keyboard-down pane in this window stands while the keyboard is up. Turning,
+    /// folding, the hinge split and the pad or key row coming or going do change it.
+    private func sendDesk() {
+        var pane = CGSize(width: trackpadPixels.width / displayScale, height: trackpadPixels.height / displayScale)
+        if hingeLayout, inputState.keyboardShown {
+            if desk.window == windowSize, desk.resting != .zero { pane = desk.resting }
+        } else {
+            desk.resting = pane
+            desk.window = windowSize
+        }
+        let scale = AppSettings.headlessScales[max(0, min(2, settings.headlessTextSize))]
+        let size = DeskBox.Size(width: Int((pane.width * scale).rounded()), height: Int((pane.height * scale).rounded()))
+        guard size.width > 0, size.height > 0, desk.sent != size else { return }
+        desk.sent = size
+        client.send("v d \(size.width) \(size.height)")
     }
 
     /// The trackpad forgets its pinch on its own when the picture goes (TrackpadUIView.resetZoom).
@@ -1172,6 +1208,16 @@ struct ContentView: View {
                     .pickerStyle(.segmented)
                     Text("Sharper means bigger frames and more lag on a busy Wi-Fi.")
                         .font(.footnote).foregroundStyle(.secondary)
+                    if screenAvailable {
+                        Picker("Text size with no Mac screen", selection: $settings.headlessTextSize) {
+                            Text("Small").tag(0)
+                            Text("Medium").tag(1)
+                            Text("Large").tag(2)
+                        }
+                        .pickerStyle(.segmented)
+                        Text("How big text is when the Mac has no screen of its own (a MacBook with its lid closed and no monitor, or a Mac with no monitor): its desktop then takes the picture's shape. With a screen attached the Mac keeps its own.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
                     Toggle("Touch the picture to point there", isOn: $settings.tapToPoint)
                     Text("The pointer jumps to where your finger is, so a tap clicks what is under it. Off, a swipe moves the pointer and a tap clicks where it is.")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -1307,6 +1353,16 @@ private final class SizeBox {
 /// The last stream size asked for, held by reference like `TaskBox`.
 private final class RequestBox {
     var size: CGSize?
+    var window = CGSize.zero
+}
+
+/// The last desktop size sent (`sendDesk`), nil until one goes out on this connection, and the
+/// keyboard-down pane (in points) with the window it was measured in. Held by reference like
+/// `TaskBox`.
+private final class DeskBox {
+    struct Size: Equatable { var width: Int; var height: Int }
+    var sent: Size?
+    var resting = CGSize.zero
     var window = CGSize.zero
 }
 

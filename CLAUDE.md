@@ -231,8 +231,8 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   captures again: an echo loop. Untested; keep `screenSound` off on simulators
   (`defaults write com.seb.Couchpad screenSound -bool false`).
 - Windows ignores `v`/`M`; the phone hides the toggle for Windows hosts.
-- Lid closed (`VirtualScreen.swift`, driven by `checkLid` in ScreenStreamer, once a second
-  while a phone wants the picture):
+- Lid closed, or no screen at all (`VirtualScreen.swift`, driven by `checkLid` in
+  ScreenStreamer, once a second while a phone wants the picture):
   - **The problem:** a closed MacBook with no monitor goes dark 10 s after every touch, then
     1 s later the next touch wakes it ('Clamshell Sleep' in `pmset -g log`). The stream died
     each time. No power assertion stops that, and `caffeinate -s -d -u` didn't either.
@@ -242,12 +242,36 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   - **Wake first:** wake the displays (user activity), then add the virtual display about 2 s
     later. One made while they sleep gives ScreenCaptureKit only blank frames; the encoder's
     log then says "encoded 0".
-  - **Where it goes:** just after closing, the built-in display is still active. The virtual
+  - **When:** "headless" = no real screen online. Real = online, not ours, not the stand-in
+    (`isStandIn`: vendor/model/serial all 0), not the built-in behind a closed lid
+    (`realScreenOn`). So a desktop Mac with no monitor counts too; lid open (built-in online,
+    asleep or not) never does. The battery rule applies only with the lid closed.
+  - **Where it goes (legacy, phone sent no `v d`):** just after closing, the built-in display is still active. The virtual
     one then mirrors it, so the capture stays on the main (built-in) display and nothing moves.
     Made as an extended display it sits at x = -1440 with an empty desktop, which is what the
     phone showed. Closed for a while, the built-in drops out and macOS has a 1920×1080
     stand-in; the virtual display then becomes the only screen, switched to 1440×900 HiDPI.
-  - **Logs:** the host logs `Screen: lid closed …` lines and the first 3 s of frame statuses.
+    On the user's MacBook the built-in display stayed online as mirror master indefinitely,
+    so mirroring is the usual case, not a brief one.
+  - **Shaped for the phone:** the phone sends `v d <w> <h>`: the desktop in points it wants
+    when it is the only screen = keyboard-down picture pane × k, k from the setting
+    `headlessTextSize` (0/1/2 → 2.0/1.5/1.2, default 1; 1.5 on a 3× phone makes the Mac's 2×
+    pixels the pane's). Sent before the first `v 1`, again when the pane changes shape
+    (rotation, fold, hinge split, pad or key row), never for the keyboard; old hosts and
+    Windows ignore it. The host takes the latest sender's among sessions with the picture
+    (`syncDesk`), clamps it (`pointSize(forDesk:)`: scaled up to ≥ 800×500, down to ≤ 1920 a
+    side, even sides), and makes the display that size (modes 2W×2H and W×H, hiDPI 1,
+    maxPixels 3840). Shaped, the BUILT-IN mirrors the VIRTUAL one (virtual is master and the
+    main display, like "optimise for" in System Settings); if that configuration fails it
+    falls back to the legacy mirror. A change reshapes only after 0.6 s unchanged and only
+    while someone watches, compared with the last target, not what macOS did: resize in
+    place (`apply` new settings, check for the HiDPI mode 1 s later), else made again under
+    the other serial (1/2) before the old one goes, then arrange, then the stream restarts
+    (which refreshes `displayBounds` for the absolute pointer). No `v d` from any watching
+    phone: back to legacy 1440×900.
+  - **Logs:** the host logs `Screen: no screen of its own …`, `Screen: virtual display is …`
+    (says whether it is the main display), `wants a WxH desktop`, and the first 3 s of frame
+    statuses.
     If the stand-in is ever mistaken for a monitor, it logs `lid closed onto a monitor` with
     every display's vendor/model/serial.
   - **Battery:** closed-display mode needs the charger. On battery the Mac clamshell-sleeps
@@ -256,6 +280,12 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
     could override it.
   - **Testing:** testing needs the user to close the lid; this session can't. A small ObjC test
     program creating a CGVirtualDisplay works for experiments (see the header for the classes).
+  - **Untested (written with the lid closed and the user on the virtual display):** the whole
+    shaped path. Whether `apply` on a live CGVirtualDisplay swaps its modes (the recreate
+    fallback exists for when it doesn't), whether the built-in accepts mirroring the virtual
+    one, whether a mirror slave shows up in `CGGetActiveDisplayList` (`mirroringBuiltIn`
+    covers it if not), maxPixels 3840 on the legacy display, and a desktop Mac with no monitor
+    (does it get the stand-in, and do the displays need waking). Only the clamp was checked.
 
 ## Commits
 Attribution trailer per the session's reminder. Development work goes on a branch with a

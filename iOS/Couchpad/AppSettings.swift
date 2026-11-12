@@ -19,6 +19,14 @@ final class AppSettings: ObservableObject {
     /// Picture resolution as a share of the trackpad's pixels: 0 half, 1 two thirds, 2 full.
     /// Fewer pixels mean smaller frames, which is what latency over Wi-Fi comes down to.
     @Published var screenQuality: Int { didSet { save("screenQuality", screenQuality) } }
+    /// How big things are on a Mac with no screen of its own (lid closed and no monitor, or a
+    /// desktop Mac without one), where the phone's picture is the only screen: 0 small, 1
+    /// medium, 2 large. The Mac's desktop takes the pane's shape at this many points per
+    /// pane point (`headlessScales`): fewer points, bigger text.
+    @Published var headlessTextSize: Int { didSet { save("headlessTextSize", headlessTextSize) } }
+    /// Desktop points per point of the picture's pane, by `headlessTextSize`. At 1.5 on a 3×
+    /// phone the Mac's 2× pixels are exactly the pane's.
+    static let headlessScales = [2.0, 1.5, 1.2]
     /// The on-screen controller (stick, look surface, buttons) in place of the trackpad.
     @Published var showController: Bool { didSet { save("showController", showController) } }
     /// The key row (F1–F12 bar, esc, tab, fn, the modifiers): under the trackpad or picture,
@@ -49,6 +57,7 @@ final class AppSettings: ObservableObject {
         screenSound = d.object(forKey: "screenSound") as? Bool ?? true
         tapToPoint = d.object(forKey: "tapToPoint") as? Bool ?? false
         screenQuality = d.object(forKey: "screenQuality") as? Int ?? 1
+        headlessTextSize = d.object(forKey: "headlessTextSize") as? Int ?? 1
         showController = d.object(forKey: "showController") as? Bool ?? false
         showKeyRow = d.object(forKey: "showKeyRow") as? Bool ?? true
         padOverlay = d.object(forKey: "padOverlay") as? Bool ?? false

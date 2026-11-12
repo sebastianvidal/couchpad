@@ -5,9 +5,10 @@ import Foundation
 import ScreenCaptureKit
 import VideoToolbox
 
-/// Streams the main display to the phone (with a MacBook's lid closed, VirtualScreen keeps
-/// one on): ScreenCaptureKit captures it, the hardware encoder turns it into HEVC (H.264 on Macs
-/// without an HEVC encoder), and each frame goes out as a ScreenPacket. Low latency over
+/// Streams the main display to the phone (with no screen on, a MacBook's lid closed or a
+/// desktop Mac without a monitor, VirtualScreen keeps one on): ScreenCaptureKit captures it,
+/// the hardware encoder turns it into HEVC (H.264 on Macs without an HEVC encoder), and each
+/// frame goes out as a ScreenPacket. Low latency over
 /// everything: real-time mode, no frame reordering, an explicit keyframe whenever the phone
 /// asks (it does so after it had to drop frames).
 ///
@@ -68,13 +69,26 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     /// own instead of waiting for the phone to toggle it.
     private var wanted: (maxWidth: Int, maxHeight: Int, fps: Int)?
     private var retryPending = false
-    /// With the lid closed the picture comes from a screen of our own (VirtualScreen). The lid
-    /// is looked at every second while a phone wants the picture or that screen is up.
+    /// With no screen on (lid closed, no monitor) the picture comes from a screen of our own
+    /// (VirtualScreen). The displays are looked at every second while a phone wants the
+    /// picture or that screen is up.
     private let virtualScreen = VirtualScreen()
     private var lidTimer: DispatchSourceTimer?
     private var lastWantedAt = 0.0
     private var virtualRefusedAt = -Double.infinity
     private var monitorLogged = false
+    /// The desktop the phones would like when the Mac has no screen of its own (`v d`, in
+    /// points; the latest sender's among phones with the picture), and when it last changed.
+    /// Nil when none of them sent one: the virtual screen is then the legacy one.
+    private var desk: VirtualScreen.Size?
+    private var deskChangedAt = 0.0
+    /// What the virtual screen was last made or reshaped into. The wanted shape is compared
+    /// with this, not with what macOS made of it, so a reshape that did not take is not tried
+    /// again every second; the next change of the phone's shape tries again.
+    private var screenShape: VirtualScreen.Shape?
+    /// Until when the virtual screen is still being set up (arranged, the stream restarted on
+    /// it) after an add or a reshape: no reshape starts before then.
+    private var settlingUntil = 0.0
     /// When the displays were woken for a virtual screen still to come (see `checkLid`).
     private var wokeForScreenAt: Double?
     /// ScreenCaptureKit's frame statuses since the stream started, logged a few seconds into
@@ -158,10 +172,28 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         queue.async {
             self.wanted = (maxWidth, maxHeight, fps)
             self.watchLid()
-            // A screen just added: the stream starts on it in a moment.
+            // A screen just added or reshaped: the stream starts on it in a moment.
             if self.checkLid() { return }
             self.startOnQueue(maxWidth: maxWidth, maxHeight: maxHeight, fps: fps)
         }
+    }
+
+    /// The desktop the phones would like with no screen on (see `desk`). Taken up by the next
+    /// look at the displays once it has held still for a moment: a phone turning or folding
+    /// can send a few in a row, and every reshape moves the whole desktop.
+    func setDesk(_ size: VirtualScreen.Size?) {
+        queue.async {
+            guard self.desk != size else { return }
+            self.desk = size
+            self.deskChangedAt = CFAbsoluteTimeGetCurrent()
+        }
+    }
+
+    /// The shape the virtual screen should have: the phone's desktop within VirtualScreen's
+    /// bounds, or the legacy one.
+    private var wantedShape: VirtualScreen.Shape {
+        guard let desk else { return .legacy }
+        return VirtualScreen.Shape(size: VirtualScreen.pointSize(forDesk: desk), shaped: true)
     }
 
     // MARK: Lid
@@ -175,21 +207,24 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         lidTimer = timer
     }
 
-    /// Adds the virtual screen when the lid closes under a phone with the picture, and takes
-    /// it away when the lid opens or nobody has watched for a while. True if it did either:
-    /// the stream then starts over on the new main screen, once WindowServer has settled.
+    /// Adds the virtual screen when a phone wants the picture of a Mac with no screen on (lid
+    /// closed and no monitor, or a desktop Mac with no monitor), reshapes it when the phone's
+    /// shape changes, and takes it away when a real screen comes on or nobody has watched for
+    /// a while. True if it did any of these: the stream then starts over on the new main
+    /// screen, once WindowServer has settled.
     @discardableResult
     private func checkLid() -> Bool {
         let now = CFAbsoluteTimeGetCurrent()
         if wanted != nil { lastWantedAt = now }
         let lid = VirtualScreen.lidClosed
-        let closed = lid && !VirtualScreen.monitorAttached()
-        if lid, !closed, wanted != nil, virtualScreen.displayID == nil, !monitorLogged {
+        let headless = !VirtualScreen.realScreenOn(lidClosed: lid)
+        if lid, !headless, wanted != nil, virtualScreen.displayID == nil, !monitorLogged {
             monitorLogged = true
             NSLog("Screen: lid closed onto a monitor; no virtual display (%@)", VirtualScreen.describeDisplays())
         }
         if !lid { monitorLogged = false }
-        let onBattery = closed && virtualScreen.displayID == nil && !VirtualScreen.onACPower
+        // Only a closed MacBook sleeps on battery; a desktop Mac has no lid to close.
+        let onBattery = headless && lid && virtualScreen.displayID == nil && !VirtualScreen.onACPower
         if onBattery, wanted != nil, lidNote == nil {
             lidNote = Self.batteryNote
             NSLog("Screen: lid closed on battery; the Mac will sleep (no virtual display)")
@@ -198,7 +233,7 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
             lidNote = nil
         }
         var changed = false
-        let needed = closed && !onBattery && wanted != nil && virtualScreen.displayID == nil && now - virtualRefusedAt > 30
+        let needed = headless && !onBattery && wanted != nil && virtualScreen.displayID == nil && now - virtualRefusedAt > 30
         if !needed { wokeForScreenAt = nil }
         if needed, wokeForScreenAt == nil {
             // The lid put the displays to sleep. Wake them first; the screen comes on the
@@ -207,22 +242,34 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
             wokeForScreenAt = now
         } else if needed, let woke = wokeForScreenAt, now - woke >= 1.5 {
             wokeForScreenAt = nil
-            if virtualScreen.add() {
-                NSLog("Screen: lid closed; showing a %d×%d virtual display", VirtualScreen.width, VirtualScreen.height)
+            let shape = wantedShape
+            if virtualScreen.add(size: shape.size) {
+                screenShape = shape
+                settlingUntil = now + 2.5
+                NSLog("Screen: no screen of its own%@; virtual display %@ %@", lid ? " (lid closed)" : "", shape.size.description,
+                      shape.shaped ? "for the phone" : "(the phone sent no shape)")
                 // Arranged once WindowServer has set the display up; then the stream follows.
+                let generation = virtualScreen.generation
                 queue.asyncAfter(deadline: .now() + 1) { [weak self] in
-                    guard let self else { return }
-                    NSLog("Screen: virtual display is %@", self.virtualScreen.arrange())
+                    guard let self, self.virtualScreen.generation == generation else { return }
+                    NSLog("Screen: virtual display is %@", self.virtualScreen.arrange(shaped: shape.shaped))
                 }
                 queue.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.restartOnNewScreen() }
                 return true
             }
             virtualRefusedAt = now
-            NSLog("Screen: lid closed, but macOS refused a virtual display")
-        } else if virtualScreen.displayID != nil, !closed || (wanted == nil && now - lastWantedAt > VirtualScreen.linger) {
+            NSLog("Screen: no screen of its own, but macOS refused a virtual display")
+        } else if virtualScreen.displayID != nil, !headless || (wanted == nil && now - lastWantedAt > VirtualScreen.linger) {
             virtualScreen.remove()
-            NSLog(closed ? "Screen: nobody watching; virtual display removed" : "Screen: lid open; virtual display removed")
+            screenShape = nil
+            NSLog(headless ? "Screen: nobody watching; virtual display removed" : "Screen: a real screen is on (lid open or a monitor); virtual display removed")
             changed = true
+        } else if virtualScreen.displayID != nil, wanted != nil, now >= settlingUntil, now - deskChangedAt >= 0.6,
+                  let current = screenShape, wantedShape != current {
+            // Only while someone watches: between one phone going and the next coming (or the
+            // same one reconnecting) nobody has a shape, and the desktop stays as it is.
+            reshape(from: current, to: wantedShape, now: now)
+            return true
         }
         if virtualScreen.displayID == nil, wanted == nil {
             lidTimer?.cancel()
@@ -232,6 +279,42 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
             queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.restartOnNewScreen() }
         }
         return changed
+    }
+
+    /// Gives the virtual screen a new shape: a new size in place if macOS takes it, made again
+    /// if not, then arranged, then the stream starts over on it (which also re-reads the
+    /// display's bounds for the absolute pointer). Each step waits for WindowServer to catch up.
+    private func reshape(from current: VirtualScreen.Shape, to target: VirtualScreen.Shape, now: Double) {
+        screenShape = target
+        let generation = virtualScreen.generation
+        NSLog("Screen: no screen of its own; virtual display from %@ to %@", current.description, target.description)
+        let arrangeThenRestart = { [weak self] in
+            guard let self, self.virtualScreen.generation == generation else { return }
+            NSLog("Screen: virtual display is %@", self.virtualScreen.arrange(shaped: target.shaped))
+            self.queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.restartOnNewScreen() }
+        }
+        guard target.size != current.size else {
+            settlingUntil = now + 1.5
+            arrangeThenRestart()
+            return
+        }
+        settlingUntil = now + 3.5
+        let applied = virtualScreen.resize(to: target.size)
+        queue.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, self.virtualScreen.generation == generation else { return }
+            if applied, self.virtualScreen.offersMode(target.size) {
+                NSLog("Screen: virtual display resized in place to %@", target.size.description)
+                arrangeThenRestart()
+            } else if self.virtualScreen.replace(size: target.size) {
+                NSLog("Screen: resizing in place did not take (%@); virtual display made again at %@",
+                      applied ? "no such mode afterwards" : "settings refused", target.size.description)
+                self.settlingUntil = CFAbsoluteTimeGetCurrent() + 2
+                self.queue.asyncAfter(deadline: .now() + 1, execute: arrangeThenRestart)
+            } else {
+                NSLog("Screen: could not resize the virtual display, nor make it again at %@", target.size.description)
+                arrangeThenRestart()
+            }
+        }
     }
 
     private func restartOnNewScreen() {
@@ -334,7 +417,7 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
                 guard let self, self.startedAt == started, self.running else { return }
                 let names = [0: "complete", 1: "idle", 2: "blank", 3: "suspended", 4: "started", 5: "stopped", -1: "unknown"]
                 let tally = self.statusTally.sorted { $0.key < $1.key }.map { "\(names[$0.key] ?? "status \($0.key)") \($0.value)" }
-                NSLog("Screen: lid closed, capturing the %@ display, first 3 s: %@", onVirtual ? "virtual" : "built-in",
+                NSLog("Screen: no screen of its own, capturing the %@ display, first 3 s: %@", onVirtual ? "virtual" : "built-in",
                       tally.isEmpty ? "no frames at all" : tally.joined(separator: ", "))
             }
         }

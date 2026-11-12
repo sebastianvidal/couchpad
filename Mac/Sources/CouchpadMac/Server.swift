@@ -19,6 +19,9 @@ final class Server {
         var wantsScreen = false
         /// The size and rate this phone asked for; the stream serves the largest of them all.
         var screenRequest = (maxWidth: 0, maxHeight: 0, fps: 0)
+        /// The desktop this phone would like when the Mac has no screen of its own (`v d`, in
+        /// points), and when it said so: the latest sender's shape wins. Nil from old phones.
+        var desk: (size: VirtualScreen.Size, at: CFAbsoluteTime)?
         var inflight = 0
         var needsKeyframe = true
         /// Frames sent but not yet acknowledged by the phone (`v a <pts>`), oldest first:
@@ -415,6 +418,9 @@ final class Server {
     /// `v 1 <maxWidth> <maxHeight> <fps>` starts the picture, `v 0` stops it, `v k` asks for a
     /// keyframe (the phone lost sync or just came back), `v a <pts>` acknowledges a frame.
     /// `v s 1` / `v s 0` switch sound on or off, `v s r …` is the phone's report on it.
+    /// `v d <width> <height>` is the desktop, in points, the phone would like the Mac to have
+    /// when the phone is its only screen (VirtualScreen); sent before the first `v 1` and
+    /// whenever the picture's pane changes shape.
     private func handleScreenCommand(_ line: String, session: Session) {
         let parts = line.split(separator: " ")
         guard parts.count >= 2 else { return }
@@ -451,6 +457,11 @@ final class Server {
             default:
                 break
             }
+        case "d":
+            guard parts.count >= 4, let w = Int(parts[2]), let h = Int(parts[3]), (1...10_000).contains(w), (1...10_000).contains(h) else { return }
+            session.desk = (VirtualScreen.Size(width: w, height: h), CFAbsoluteTimeGetCurrent())
+            NSLog("Screen %@: wants a %dx%d desktop with no screen of its own", String(describing: session.connection.endpoint), w, h)
+            syncDesk()
         case "k":
             session.needsKeyframe = true
             ScreenStreamer.shared.requestKeyframe()
@@ -605,6 +616,7 @@ final class Server {
     /// Requests arriving within 300 ms of the last (re)start are coalesced into one: a phone
     /// rotating or folding sends several sizes in a row, and each restart costs a keyframe.
     private func syncScreen() {
+        syncDesk()
         let wanting = sessions.values.filter { $0.wantsScreen }
         guard !wanting.isEmpty else { ScreenStreamer.shared.stop(); return }
         let now = CFAbsoluteTimeGetCurrent()
@@ -621,6 +633,14 @@ final class Server {
         ScreenStreamer.shared.start(maxWidth: wanting.map(\.screenRequest.maxWidth).max() ?? 0,
                                     maxHeight: wanting.map(\.screenRequest.maxHeight).max() ?? 0,
                                     fps: wanting.map(\.screenRequest.fps).max() ?? 0)
+    }
+
+    /// The desktop shape for a Mac with no screen of its own: the one most recently sent by a
+    /// phone with the picture on, or none (the legacy virtual screen) if none of them sent one.
+    /// The streamer ignores a repeat, and waits for a new one to hold still before reshaping.
+    private func syncDesk() {
+        let desk = sessions.values.filter { $0.wantsScreen }.compactMap(\.desk).max { $0.at < $1.at }
+        ScreenStreamer.shared.setDesk(desk?.size)
     }
 
     /// Sound is captured only while some phone with the picture wants it.
