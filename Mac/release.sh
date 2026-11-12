@@ -5,8 +5,8 @@
 set -e -o pipefail
 cd "$(dirname "$0")"
 : "${SIGN_IDENTITY:?Set SIGN_IDENTITY to your 'Developer ID Application: …' identity}"
-./build.sh
-APP="build/Couchpad.app"
+OUT=build/release ./build.sh
+APP="build/release/Couchpad.app"
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist")
 DMG="build/Couchpad-$VERSION.dmg"
 STAGE="build/dmg"

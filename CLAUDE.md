@@ -8,13 +8,16 @@ tray app). `docs/` is the GitHub Pages site. README.md is the user-facing overvi
 ### Mac (direct download, notarized DMG)
 1. Bump `CFBundleShortVersionString` in `Mac/Info.plist`.
 2. `SIGN_IDENTITY="Developer ID Application: Sebastian Vidal (HQZM8YK4DC)" Mac/release.sh`
-   — clean-builds, signs, packages `Mac/build/Couchpad-<version>.dmg`, notarizes (keychain
-   profile `couchpad`, already stored), staples. ~5 minutes, mostly Apple's queue.
+   — builds into `Mac/build/release/Couchpad.app` (not the dev app's folder), signs,
+   packages `Mac/build/Couchpad-<version>.dmg`, notarizes (keychain profile `couchpad`,
+   already stored), staples. ~5 minutes, mostly Apple's queue.
 3. `gh release create v<version> Mac/build/Couchpad-<version>.dmg --title "Couchpad <version> — Mac companion" --notes "..."`
 4. Update the DMG filename in `docs/index.html` (two links) and README.md, commit, push.
    Pages deploys in ~1 minute; verify with `curl -s https://sebastianvidal.github.io/couchpad/ | grep dmg`.
-5. If the Mac app was running, relaunch it from `Mac/build/Couchpad.app` so the user runs the
-   release build.
+5. Install it for the user: quit the running Couchpad, `ditto Mac/build/release/Couchpad.app
+   /Applications/Couchpad.app`, `open /Applications/Couchpad.app`. The user's everyday host
+   is the one in `/Applications` (since 1.8): its Developer ID identity is the same from
+   version to version, so the Accessibility and Screen Recording grants are given once.
 
 Never ship a build whose `swift build` errored; `build.sh` exits non-zero on failure for that reason.
 
@@ -37,7 +40,10 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   Changing either resets pairing tokens and (Mac) Accessibility trust.
 - Bonjour type `_couchpad._tcp`, port 48123, pairing URL scheme `couchpad://`.
 - Local Mac builds sign with the Apple Development cert so Accessibility trust survives
-  rebuilds; release builds use Developer ID.
+  rebuilds; release builds use Developer ID. The two are different apps to macOS, so they
+  live in different places: dev in `Mac/build/Couchpad.app`, run only to test host changes
+  (quit the `/Applications` one first, and start it again afterwards); release in
+  `/Applications/Couchpad.app`.
 - Arrow-key events must carry the Fn + keypad flags or macOS hotkeys (Mission Control) ignore them.
 - Hosts must ignore lines that arrive before `hello`, never answer them `nope`: a `nope` to a
   token puts the phone on the pairing prompt for that device (it keeps the token, in case

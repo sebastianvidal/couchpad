@@ -1,9 +1,12 @@
 #!/bin/zsh
-# Builds the Mac menu-bar app into Mac/build/Couchpad.app
+# Builds the Mac menu-bar app into Mac/build/Couchpad.app (or $OUT/Couchpad.app: release.sh
+# builds into its own folder, so a release never replaces the dev app. macOS ties the
+# Accessibility and Screen Recording grants to the signature, and one path holding the
+# Apple Development build one day and the Developer ID build the next lost them each time).
 set -e -o pipefail
 cd "$(dirname "$0")"
 swift build -c release 2>&1 | grep -v '^\[' || { echo 'swift build failed' >&2; exit 1; }
-APP="build/Couchpad.app"
+APP="${OUT:-build}/Couchpad.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp .build/release/CouchpadMac "$APP/Contents/MacOS/Couchpad"
