@@ -54,11 +54,14 @@ final class VirtualScreen {
     /// text big enough to read on a phone, and the shape of a sideways phone's picture pane.
     /// For phones that don't ask for a shape of their own.
     static let legacySize = Size(width: 1440, height: 900)
-    /// Bounds on a shape asked for by a phone. Smaller than 800×500 points and macOS's own
-    /// windows (System Settings, open and save panels) no longer fit; past 1920 points a
-    /// side the 2× pixels would pass `maxPixels`, and text would be too small to read on a
-    /// phone anyway. A request outside is scaled as a whole, so the shape stays the pane's.
-    static let minWidth = 800, minHeight = 500, maxSide = 1920
+    /// Bounds on a shape asked for by a phone. Below 800 points wide macOS's own windows
+    /// (System Settings, open and save panels) no longer fit. The height floor is 600: on the
+    /// user's MacBook macOS offered an 800×520 HiDPI mode and then refused to switch to it
+    /// (error 1001), while 800×638 and up worked; 800×600 is macOS's classic minimum, not a
+    /// verified threshold. Past 1920 points a side the 2× pixels would pass `maxPixels`, and
+    /// text would be too small to read on a phone anyway. A request outside is scaled as a
+    /// whole, so the shape stays the pane's.
+    static let minWidth = 800, minHeight = 600, maxSide = 1920
     /// The largest pixel size the display can take, either way round: 2× the largest side,
     /// so any shape fits without making the display again.
     private static let maxPixels: UInt32 = 3840
@@ -215,7 +218,7 @@ final class VirtualScreen {
     }
 
     /// Whether the display offers `size` in HiDPI (2× pixels).
-    func offersMode(_ size: Size) -> Bool { hiDPIMode(size) != nil }
+    func offersMode(_ size: Size) -> Bool { !hiDPIModes(size).isEmpty }
 
     /// Settles where the screen goes, a moment after `add` or a reshape (once WindowServer has
     /// set it up), and says what came of it for the log.
@@ -316,23 +319,48 @@ final class VirtualScreen {
         assertions = []
     }
 
-    private func hiDPIMode(_ size: Size) -> CGDisplayMode? {
-        guard let id = displayID else { return nil }
+    /// Every mode of `size` points backed by twice the pixels, the ones macOS calls usable
+    /// for a desktop first. The list with duplicates shown can hold more than one such mode,
+    /// and not every one is a mode macOS will switch to.
+    private func hiDPIModes(_ size: Size) -> [CGDisplayMode] {
+        guard let id = displayID else { return [] }
         let options = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
-        let modes = CGDisplayCopyAllDisplayModes(id, options) as? [CGDisplayMode] ?? []
-        return modes.first { $0.width == size.width && $0.height == size.height && $0.pixelWidth == size.width * 2 }
+        let modes = (CGDisplayCopyAllDisplayModes(id, options) as? [CGDisplayMode] ?? [])
+            .filter { $0.width == size.width && $0.height == size.height && $0.pixelWidth == size.width * 2 }
+        return modes.filter { $0.isUsableForDesktopGUI() } + modes.filter { !$0.isUsableForDesktopGUI() }
+    }
+
+    /// Whether WindowServer has caught up with an arrangement, so a stream started now gets
+    /// the new screen: the display shows its size in points (in HiDPI or, if that was
+    /// refused, at 1×; the mode and the bounds the stream and the absolute pointer read) and,
+    /// shaped, it is the main display. A legacy mirror of the built-in display has nothing
+    /// to wait for: the capture stays on the built-in one. Gone, nothing either.
+    func isSettled(shaped: Bool) -> Bool {
+        guard let id = displayID else { return true }
+        if !shaped, CGDisplayMirrorsDisplay(id) != kCGNullDirectDisplay { return true }
+        guard let mode = CGDisplayCopyDisplayMode(id) else { return false }
+        let bounds = CGDisplayBounds(id).size
+        return mode.width == size.width && mode.height == size.height
+            && Int(bounds.width) == size.width && Int(bounds.height) == size.height
+            && (!shaped || CGMainDisplayID() == id)
     }
 
     /// The display comes up in some 1× mode; pick `size` points backed by twice the pixels.
+    /// Each matching mode is tried until macOS takes one; only if none is taken is it logged.
     @discardableResult
     private func useHiDPIMode() -> Bool {
         guard let id = displayID else { return false }
-        guard let mode = hiDPIMode(size) else {
+        let modes = hiDPIModes(size)
+        guard !modes.isEmpty else {
             NSLog("Screen: no %@ HiDPI mode on the virtual display; keeping its default", size.description)
             return false
         }
-        let result = CGDisplaySetDisplayMode(id, mode, nil)
-        if result != .success { NSLog("Screen: could not switch the virtual display to HiDPI (%d)", result.rawValue) }
-        return result == .success
+        var result = CGError.success
+        for mode in modes {
+            result = CGDisplaySetDisplayMode(id, mode, nil)
+            if result == .success { return true }
+        }
+        NSLog("Screen: could not switch the virtual display to %@ HiDPI (%d modes tried, last error %d)", size.description, modes.count, result.rawValue)
+        return false
     }
 }

@@ -442,7 +442,7 @@ struct ContentView: View {
             desk.resting = pane
             desk.window = windowSize
         }
-        let scale = AppSettings.headlessScales[max(0, min(2, settings.headlessTextSize))]
+        let scale = settings.headlessScale
         let size = DeskBox.Size(width: Int((pane.width * scale).rounded()), height: Int((pane.height * scale).rounded()))
         guard size.width > 0, size.height > 0, desk.sent != size else { return }
         desk.sent = size
@@ -1213,6 +1213,7 @@ struct ContentView: View {
                             Text("Small").tag(0)
                             Text("Medium").tag(1)
                             Text("Large").tag(2)
+                            Text("Largest").tag(3)
                         }
                         .pickerStyle(.segmented)
                         Text("How big text is when the Mac has no screen of its own (a MacBook with its lid closed and no monitor, or a Mac with no monitor): its desktop then takes the picture's shape. With a screen attached the Mac keeps its own.")

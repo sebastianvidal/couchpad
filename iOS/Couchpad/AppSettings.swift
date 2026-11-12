@@ -21,12 +21,15 @@ final class AppSettings: ObservableObject {
     @Published var screenQuality: Int { didSet { save("screenQuality", screenQuality) } }
     /// How big things are on a Mac with no screen of its own (lid closed and no monitor, or a
     /// desktop Mac without one), where the phone's picture is the only screen: 0 small, 1
-    /// medium, 2 large. The Mac's desktop takes the pane's shape at this many points per
-    /// pane point (`headlessScales`): fewer points, bigger text.
+    /// medium, 2 large, 3 largest, an index into `headlessScales`. The Mac's desktop takes the
+    /// pane's shape at that many points per pane point: fewer points, bigger text.
     @Published var headlessTextSize: Int { didSet { save("headlessTextSize", headlessTextSize) } }
-    /// Desktop points per point of the picture's pane, by `headlessTextSize`. At 1.5 on a 3×
-    /// phone the Mac's 2× pixels are exactly the pane's.
-    static let headlessScales = [2.0, 1.5, 1.2]
+    /// Desktop points per point of the picture's pane, by `headlessTextSize`. Large (1.5) on
+    /// a 3× phone makes the Mac's 2× pixels exactly the pane's; Medium, the default, gives
+    /// more desktop (Large was a little too zoomed in for the user).
+    static let headlessScales = [2.2, 1.8, 1.5, 1.25]
+    /// The scale for `headlessTextSize`, whatever is stored there.
+    var headlessScale: Double { Self.headlessScales[max(0, min(Self.headlessScales.count - 1, headlessTextSize))] }
     /// The on-screen controller (stick, look surface, buttons) in place of the trackpad.
     @Published var showController: Bool { didSet { save("showController", showController) } }
     /// The key row (F1–F12 bar, esc, tab, fn, the modifiers): under the trackpad or picture,

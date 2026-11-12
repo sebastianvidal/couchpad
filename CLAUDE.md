@@ -256,22 +256,33 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
     so mirroring is the usual case, not a brief one.
   - **Shaped for the phone:** the phone sends `v d <w> <h>`: the desktop in points it wants
     when it is the only screen = keyboard-down picture pane × k, k from the setting
-    `headlessTextSize` (0/1/2 → 2.0/1.5/1.2, default 1; 1.5 on a 3× phone makes the Mac's 2×
-    pixels the pane's). Sent before the first `v 1`, again when the pane changes shape
-    (rotation, fold, hinge split, pad or key row), never for the keyboard; old hosts and
-    Windows ignore it. The host takes the latest sender's among sessions with the picture
-    (`syncDesk`), clamps it (`pointSize(forDesk:)`: scaled up to ≥ 800×500, down to ≤ 1920 a
-    side, even sides), and makes the display that size (modes 2W×2H and W×H, hiDPI 1,
-    maxPixels 3840). Shaped, the BUILT-IN mirrors the VIRTUAL one (virtual is master and the
-    main display, like "optimise for" in System Settings); if that configuration fails it
-    falls back to the legacy mirror. A change reshapes only after 0.6 s unchanged and only
-    while someone watches, compared with the last target, not what macOS did: resize in
-    place (`apply` new settings, check for the HiDPI mode 1 s later), else made again under
-    the other serial (1/2) before the old one goes, then arrange, then the stream restarts
-    (which refreshes `displayBounds` for the absolute pointer). No `v d` from any watching
-    phone: back to legacy 1440×900.
+    `headlessTextSize` (0–3 → 2.2/1.8/1.5/1.25 in `headlessScales`, default 1 = 1.8; the
+    user found 1.5 a little too zoomed in; 1.5 on a 3× phone makes the Mac's 2× pixels the
+    pane's). Sent before the first `v 1`, again when the pane changes shape (rotation, fold,
+    hinge split, pad or key row), never for the keyboard; old hosts and Windows ignore it.
+    The host takes the latest sender's among sessions with the picture (`syncDesk`), clamps
+    it (`pointSize(forDesk:)`: scaled up to ≥ 800×600, down to ≤ 1920 a side, even sides),
+    and makes the display that size (modes 2W×2H and W×H, hiDPI 1, maxPixels 3840). The 600
+    floor: macOS offered an 800×520 HiDPI mode and refused to switch to it (error 1001, every
+    try), while 800×638 and up worked; 600 is the classic minimum, not a measured threshold.
+    `useHiDPIMode` tries every matching mode, usable-for-desktop ones first. Shaped, the
+    BUILT-IN mirrors the VIRTUAL one (virtual is master and the main display, like "optimise
+    for" in System Settings); if that configuration fails it falls back to the legacy
+    mirror. No `v d` from any watching phone: back to legacy 1440×900.
     `fixModeIfAlone` switches the mode at most twice per size, so a switch that doesn't
     stick can't restart the stream forever.
+  - **Reshape sequence** (`reshape` in ScreenStreamer), only while someone watches, compared
+    with the last target, not what macOS did: a new `v d` schedules a `checkLid` 0.4 s later
+    (`deskDebounce`; a fold sends passing shapes ~0.5 s apart); resize in place (`apply` new
+    settings, poll every 0.1 s up to 1 s for the HiDPI mode), else made again under the
+    other serial (1/2) before the old one goes; arrange; poll up to 1 s until the display
+    shows the size (mode and bounds) and, shaped, is the main display; restart the stream
+    (refreshes `displayBounds` for the absolute pointer). `settlingUntil` (5 s safety) ends
+    at that restart, which runs `checkLid` again for a shape that came in meanwhile. A `v 1`
+    arriving while a reshape is due or under way doesn't restart a running stream
+    (`deferredStart`): the old picture plays on until the reshape's restart; with nothing
+    running it starts at once, and if the shape goes back with no reshape, `checkLid`
+    starts it with the deferred box.
   - **Logs:** the host logs `Screen: no screen of its own …`, `Screen: virtual display is …`
     (says whether it is the main display), `wants a WxH desktop`, and the first 3 s of frame
     statuses.
@@ -283,12 +294,14 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
     could override it.
   - **Testing:** testing needs the user to close the lid; this session can't. A small ObjC test
     program creating a CGVirtualDisplay works for experiments (see the header for the classes).
-  - **Untested (written with the lid closed and the user on the virtual display):** the whole
-    shaped path. Whether `apply` on a live CGVirtualDisplay swaps its modes (the recreate
-    fallback exists for when it doesn't), whether the built-in accepts mirroring the virtual
-    one, whether a mirror slave shows up in `CGGetActiveDisplayList` (`mirroringBuiltIn`
-    covers it if not), maxPixels 3840 on the legacy display, and a desktop Mac with no monitor
-    (does it get the stand-in, and do the displays need waking). Only the clamp was checked.
+  - **Tested** by the user, lid closed, macOS 27.2, M4 Pro MacBook, every phone position:
+    the shaped arrangement works (built-in mirrors the virtual one, virtual is the main
+    display), and resize in place works every time; the recreate fallback never ran.
+    800×520 was refused in HiDPI (hence the 600 floor).
+  - **Untested:** a desktop Mac with no monitor (does it get the stand-in, do the displays
+    need waking), the recreate fallback, switching between legacy and shaped, and the 600
+    floor, the multi-mode HiDPI try, the debounce, polling and deferred `v 1` until the user
+    tries them.
 
 ## Commits
 Attribution trailer per the session's reminder. Development work goes on a branch with a
