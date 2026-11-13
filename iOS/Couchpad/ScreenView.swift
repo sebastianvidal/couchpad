@@ -159,6 +159,8 @@ struct ScreenView: UIViewRepresentable {
     /// `ScreenGeometry.KeyboardPush`.
     var restingHeight: CGFloat = 0
     var keyboardUp = false
+    /// The picture held at its old size while the Mac reshapes; see `ScreenGeometry.Hold`.
+    var hold: ScreenGeometry.Hold?
 
     func makeUIView(context: Context) -> ScreenUIView {
         let view = ScreenUIView()
@@ -171,6 +173,7 @@ struct ScreenView: UIViewRepresentable {
         uiView.zoom = zoom
         uiView.pan = pan
         uiView.videoSize = receiver.videoSize
+        uiView.hold = hold
         uiView.push.resting = restingHeight
         uiView.push.keyboardUp = keyboardUp
         uiView.push.settle(pane: uiView.bounds.size)
@@ -191,6 +194,7 @@ final class ScreenUIView: UIView {
     var pan = CGPoint.zero
     var videoSize = CGSize.zero
     var push = ScreenGeometry.KeyboardPush()
+    var hold: ScreenGeometry.Hold?
     weak var videoLayer: CALayer?
     private let clipView = UIView()
 
@@ -227,7 +231,7 @@ final class ScreenUIView: UIView {
         claimVideoLayer()
         let pane = bounds.size
         push.settle(pane: pane)
-        let home = ScreenGeometry.home(for: videoSize, in: pane, pushed: push.pushed(pane: pane))
+        let home = ScreenGeometry.home(for: videoSize, in: pane, pushed: push.pushed(pane: pane), hold: hold)
         let viewport = ScreenGeometry.viewport(home: home, in: pane, zoom: zoom)
         // Clamped here too: the trackpad keeps its pan as the fingers left it, and the pane
         // may have changed shape since (the keyboard, a rotation).
@@ -307,12 +311,31 @@ enum ScreenGeometry {
         return wanted.width <= given.width * 1.01 && wanted.height <= given.height * 1.01
     }
 
+    /// The picture kept at the size it had before the pane changed shape in the same window
+    /// (the pad or the key row coming or going), while a Mac with no screen of its own
+    /// reshapes its desktop for the new pane (ContentView's `pictureHold`). Fitted at once,
+    /// the old-shaped picture shrank into the new pane, then grew again when the new shape
+    /// arrived a second later. `video` is the picture it was taken for: any other picture is
+    /// fitted as usual.
+    struct Hold: Equatable {
+        var video: CGSize
+        var size: CGSize
+    }
+
     /// The picture at 1×: aspect-fitted into the pane as if the pane were `pushed` points
     /// taller, which is what it is without the keyboard. No taller than the pane, it is
     /// centred in it; taller, its bottom sits at the pane's bottom and its top is cut off
     /// above the pane. With `pushed` zero this is the plain aspect-fit rect.
-    static func home(for video: CGSize, in pane: CGSize, pushed: CGFloat = 0) -> CGRect {
+    /// With a `hold` for this picture and nothing pushed (the keyboard always wins), the
+    /// picture keeps the held size, top edge where the pane's is and centred across: the
+    /// pane's top stays put when the pad or the key row comes or goes under it, so the
+    /// picture stays where it was on screen, cut off by a pane that got shorter or with a
+    /// gap under it in one that got taller.
+    static func home(for video: CGSize, in pane: CGSize, pushed: CGFloat = 0, hold: Hold? = nil) -> CGRect {
         guard video.width > 0, video.height > 0, pane.width > 0, pane.height > 0 else { return CGRect(origin: .zero, size: pane) }
+        if let hold, hold.video == video, pushed <= 0 {
+            return CGRect(x: (pane.width - hold.size.width) / 2, y: 0, width: hold.size.width, height: hold.size.height)
+        }
         let scale = min(pane.width / video.width, (pane.height + max(0, pushed)) / video.height)
         let size = CGSize(width: video.width * scale, height: video.height * scale)
         let y = size.height <= pane.height ? (pane.height - size.height) / 2 : pane.height - size.height

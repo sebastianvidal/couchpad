@@ -272,17 +272,31 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
     `fixModeIfAlone` switches the mode at most twice per size, so a switch that doesn't
     stick can't restart the stream forever.
   - **Reshape sequence** (`reshape` in ScreenStreamer), only while someone watches, compared
-    with the last target, not what macOS did: a new `v d` schedules a `checkLid` 0.4 s later
-    (`deskDebounce`; a fold sends passing shapes ~0.5 s apart); resize in place (`apply` new
-    settings, poll every 0.1 s up to 1 s for the HiDPI mode), else made again under the
-    other serial (1/2) before the old one goes; arrange; poll up to 1 s until the display
-    shows the size (mode and bounds) and, shaped, is the main display; restart the stream
-    (refreshes `displayBounds` for the absolute pointer). `settlingUntil` (5 s safety) ends
-    at that restart, which runs `checkLid` again for a shape that came in meanwhile. A `v 1`
-    arriving while a reshape is due or under way doesn't restart a running stream
-    (`deferredStart`): the old picture plays on until the reshape's restart; with nothing
-    running it starts at once, and if the shape goes back with no reshape, `checkLid`
-    starts it with the deferred box.
+    with the last target, not what macOS did: a new `v d` schedules a `checkLid` 0.25 s
+    later (`deskDebounce`: coalesces a burst from one layout pass; it can't catch fold
+    transients, ~0.5 s apart); the capture stops (`stopOnQueue`: no frame of a half-reshaped
+    display, which ScreenCaptureKit letterboxes into the old frame size; the phone keeps its
+    last frame, UDP pings go on regardless); resize in place (`apply` new settings, poll
+    every 0.1 s up to 1 s for the HiDPI mode), else made again under the other serial (1/2)
+    before the old one goes; arrange; poll up to 1 s until the display shows the size (mode
+    and bounds) and, shaped, is the main display; restart the stream (refreshes
+    `displayBounds` for the absolute pointer). `settlingUntil` (5 s safety) ends at that
+    restart, which runs `checkLid` again for a shape that came in meanwhile. While settling
+    no stream starts at all (`startOnQueue` defers a `v 1`, a failure retry or a wake to the
+    restart, `deferredStart`). A `v 1` while a reshape is only due defers if a stream is
+    running (the old picture plays on), else starts at once; if the shape goes back with no
+    reshape, `checkLid` starts the deferred box.
+  - **Phone's hold** (`holdPicture` in ContentView, `ScreenGeometry.Hold`): when the
+    keyboard-down pane changes height in the same window (pad, key row) and the picture
+    filled the old pane (video aspect within 2% of the pane's: that is how the phone knows
+    the host shapes for it; no protocol), the picture keeps its old size, top-anchored and
+    centred across, cropped or with a gap, instead of fitting, in ScreenView and the
+    trackpad's pointer mapping alike. Ends when `screen.videoSize` changes or after 2 s
+    (snaps to the fit; the picture's layout has no animation to reuse), and on a window
+    change, hinge, picture off, phase change, zoom or keyboard toggle; a pane back at the
+    hold's origin ends it too. Never zoomed, half open, with the keyboard up or within 1.5 s
+    of it moving; any push wins over a hold. The phone sends `v d` 400 ms after the pane
+    settles, so the new picture lands ~1.5 s in: little margin under 2 s.
   - **Logs:** the host logs `Screen: no screen of its own …`, `Screen: virtual display is …`
     (says whether it is the main display), `wants a WxH desktop`, and the first 3 s of frame
     statuses.
@@ -296,12 +310,14 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
     program creating a CGVirtualDisplay works for experiments (see the header for the classes).
   - **Tested** by the user, lid closed, macOS 27.2, M4 Pro MacBook, every phone position:
     the shaped arrangement works (built-in mirrors the virtual one, virtual is the main
-    display), and resize in place works every time; the recreate fallback never ran.
-    800×520 was refused in HiDPI (hence the 600 floor).
+    display); resize in place works every time, the recreate fallback never ran. 800×520 was
+    refused in HiDPI; with the 600 floor every size takes HiDPI, 924×600 included. A reshape
+    takes ~0.9 s from `v d` to the stream's restart. Unfolding sends two shapes ~0.5 s apart
+    and both are reshaped.
   - **Untested:** a desktop Mac with no monitor (does it get the stand-in, do the displays
-    need waking), the recreate fallback, switching between legacy and shaped, and the 600
-    floor, the multi-mode HiDPI try, the debounce, polling and deferred `v 1` until the user
-    tries them.
+    need waking), the recreate fallback, switching between legacy and shaped, and, until the
+    user tries them, the phone's hold, the capture stopping during a reshape, the deferral
+    while settling and the 0.25 s debounce.
 
 ## Commits
 Attribution trailer per the session's reminder. Development work goes on a branch with a

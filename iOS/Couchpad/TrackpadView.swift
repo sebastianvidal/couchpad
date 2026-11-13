@@ -21,6 +21,9 @@ struct TrackpadView: UIViewRepresentable {
     /// `ScreenGeometry.KeyboardPush`.
     var restingHeight: CGFloat = 0
     var keyboardUp = false
+    /// The picture held at its old size while the Mac reshapes, as ScreenView has it, so
+    /// touches land where the picture is; see `ScreenGeometry.Hold`.
+    var hold: ScreenGeometry.Hold?
     var onZoom: ((CGFloat, CGPoint) -> Void)?
 
     func makeUIView(context: Context) -> TrackpadUIView {
@@ -35,6 +38,10 @@ struct TrackpadView: UIViewRepresentable {
         uiView.pictureSize = pictureSize
         uiView.onZoom = onZoom
         if pictureSize == .zero { uiView.resetZoom() }   // the picture went away; the next one starts at 1×
+        if uiView.hold != hold {
+            uiView.hold = hold
+            uiView.setNeedsLayout()
+        }
         var push = uiView.push
         push.resting = restingHeight
         push.keyboardUp = keyboardUp
@@ -67,11 +74,12 @@ final class TrackpadUIView: UIView {
     private var pendingScroll = CGPoint.zero
 
     var push = ScreenGeometry.KeyboardPush()
+    var hold: ScreenGeometry.Hold?
     private var zoomReportPending = false
 
     /// Where a picture of `size` sits inside this view at 1×.
     private func homeRect(_ size: CGSize) -> CGRect {
-        ScreenGeometry.home(for: size, in: bounds.size, pushed: push.pushed(pane: bounds.size))
+        ScreenGeometry.home(for: size, in: bounds.size, pushed: push.pushed(pane: bounds.size), hold: hold)
     }
 
     /// Where the picture is right now, zoom included, for mapping touches to it. The pan

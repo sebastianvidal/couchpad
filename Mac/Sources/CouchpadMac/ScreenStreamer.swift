@@ -90,13 +90,16 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     /// reshape starts before then. Set well ahead as a safety, and ended the moment the
     /// stream restarts on the new shape (`settleAndRestart`).
     private var settlingUntil = 0.0
-    /// A `v 1` that came while a reshape was due or under way and was left to the reshape's
-    /// own restart (see `start`). Cleared by any stream start; if no reshape comes after all,
+    /// A stream start left for the reshape's own restart: a `v 1` that came while a reshape
+    /// was due with a stream running (see `start`), or any start while one is under way
+    /// (see `startOnQueue`). Cleared by any stream start; if no reshape comes after all,
     /// `checkLid` starts the stream with it.
     private var deferredStart = false
-    /// How long a new desktop shape must hold still before the screen is reshaped: a phone
-    /// folding sends a passing shape or two half a second apart.
-    private static let deskDebounce = 0.4
+    /// How long a new desktop shape must hold still before the screen is reshaped: enough to
+    /// take a burst from one layout pass on the phone as one. Not fold transients: unfolding
+    /// sends two shapes about half a second apart, and the phone already waits 400 ms for a
+    /// pane to settle before it sends.
+    private static let deskDebounce = 0.25
     /// How often the reshape looks whether WindowServer has caught up, and how long at most.
     private static let pollInterval = 0.1, pollLimit = 1.0
     /// When the displays were woken for a virtual screen still to come (see `checkLid`).
@@ -216,7 +219,13 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     /// held still.
     private var reshapeAhead: Bool {
         guard virtualScreen.displayID != nil, let screenShape else { return false }
-        return CFAbsoluteTimeGetCurrent() < settlingUntil || (wanted != nil && wantedShape != screenShape)
+        return reshaping || (wanted != nil && wantedShape != screenShape)
+    }
+
+    /// The virtual screen is being added or reshaped and its restart has not run yet: no
+    /// stream may start on it, half made as it is (`startOnQueue`).
+    private var reshaping: Bool {
+        virtualScreen.displayID != nil && CFAbsoluteTimeGetCurrent() < settlingUntil
     }
 
     /// The shape the virtual screen should have: the phone's desktop within VirtualScreen's
@@ -324,6 +333,10 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     private func reshape(from current: VirtualScreen.Shape, to target: VirtualScreen.Shape, now: Double) {
         screenShape = target
         settlingUntil = now + 5   // a safety; the restart ends it
+        // No frame of a half-reshaped display goes out: ScreenCaptureKit letterboxes the new
+        // desktop into the old frame size for a few frames. The phone keeps showing the last
+        // frame (the server's pings keep its UDP alive), and `settleAndRestart` starts again.
+        stopOnQueue()
         let generation = virtualScreen.generation
         NSLog("Screen: no screen of its own; virtual display from %@ to %@", current.description, target.description)
         let arrangeThenRestart = { [weak self] in
@@ -447,6 +460,13 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     private func startOnQueue(maxWidth: Int, maxHeight: Int, fps: Int) {
+        // Mid-reshape the display is half made: whoever asked (a `v 1`, a retry after a
+        // failure, the screens waking) is left for the reshape's restart, which comes within
+        // the settling safety at most. `checkLid` catches it should the restart not come.
+        if reshaping {
+            deferredStart = true
+            return
+        }
         deferredStart = false
         guard CGPreflightScreenCaptureAccess() else {
             // Shows the system prompt the first time; after that the user has to flip the switch.

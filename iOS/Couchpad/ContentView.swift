@@ -24,6 +24,10 @@ struct ContentView: View {
     /// The last `v d` sent and the keyboard-down pane it came from (`sendDesk`). In a box,
     /// like `lastScreenRequest`.
     @State private var desk = DeskBox()
+    /// The picture held at its old size after its pane changed shape in the same window,
+    /// until the Mac's reshaped picture arrives (`holdPicture`), and the bookkeeping for it.
+    @State private var pictureHold: ScreenGeometry.Hold?
+    @State private var holdBox = HoldBox()
     /// The picture's pane's last measured size (`measurePane`).
     @State private var paneSize = SizeBox()
     /// Waits for the keyboard-down layout to settle before `restingPaneHeight` is lowered,
@@ -242,6 +246,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: windowSize, initial: true) { old, new in
+            endPictureHold()   // a new window: the old picture's size means nothing in it
             // The iOS keyboard starts hidden in every layout and comes up on demand (the bar's
             // keyboard button, or the key row's): sideways it would cover half the screen,
             // and upright the trackpad, the picture or the pad is the point. So a rotation
@@ -256,6 +261,7 @@ struct ContentView: View {
             inputState.keyboardShown = false
         }
         .onChange(of: screenOn) { _, _ in
+            endPictureHold()
             inputState.keyboardShown = false
             resetZoom()
         }
@@ -268,6 +274,7 @@ struct ContentView: View {
             inputState.keyboardShown = false
         }
         .onChange(of: screen.videoSize) { _, size in
+            endPictureHold()   // the reshaped picture (or none): fitted as usual from here
             if size == .zero { resetZoom() }   // the stream stopped; the next picture starts at 1×
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -277,7 +284,8 @@ struct ContentView: View {
             default: break
             }
         }
-        .onChange(of: client.phase) { _, _ in syncScreen() }
+        .onChange(of: client.phase) { _, _ in endPictureHold(); syncScreen() }
+        .onChange(of: hingePartlyOpen) { _, _ in endPictureHold() }
         .onChange(of: settings.showScreen) { _, _ in syncScreen() }
         .onChange(of: settings.screenSound) { _, on in
             // Sound only ever plays with the picture; without it, the next `v 1` brings it along.
@@ -296,13 +304,17 @@ struct ContentView: View {
                 syncScreen(resized: true)
             }
         }
-        .onChange(of: inputState.keyboardShown) { _, _ in keyboardToggledAt = Date() }
+        .onChange(of: inputState.keyboardShown) { _, _ in
+            keyboardToggledAt = Date()
+            endPictureHold()   // the keyboard's push takes over, as it always has
+        }
         .onChange(of: settings.screenQuality) { _, _ in syncScreen() }
         .onChange(of: settings.headlessTextSize) { _, _ in
             // Only the Mac's desktop changes; the stream stays as it is.
             if client.isConnected, screenOn, trackpadPixels.width > 0 { sendDesk() }
         }
         .onChange(of: screenZoom) { _, _ in
+            endPictureHold()
             // Zoomed in, the pane's pixels are spread thin: once the fingers settle, ask for
             // a stream with that many more pixels (the host caps it at the display's own).
             zoomSettle?.cancel()
@@ -933,11 +945,12 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
             if showPicture {
-                ScreenView(receiver: screen, zoom: screenZoom, pan: screenPan, restingHeight: resting, keyboardUp: !keyboardDown)
+                ScreenView(receiver: screen, zoom: screenZoom, pan: screenPan, restingHeight: resting, keyboardUp: !keyboardDown, hold: pictureHold)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             TrackpadView(client: client, settings: settings, videoSize: showPicture && settings.tapToPoint ? screen.videoSize : .zero,
                          pictureSize: showPicture ? screen.videoSize : .zero, restingHeight: resting, keyboardUp: !keyboardDown,
+                         hold: showPicture ? pictureHold : nil,
                          onZoom: { zoom, pan in screenZoom = zoom; screenPan = pan })
                 // The pane's size from `onGeometryChange`, which reports every change with
                 // the final value: an onChange on a GeometryReader's size was once handed a
@@ -1050,7 +1063,65 @@ struct ContentView: View {
             height = max(height, restingPaneHeight)
         }
         let pixels = CGSize(width: size.width * displayScale, height: height * displayScale)
-        if trackpadPixels != pixels { trackpadPixels = pixels }
+        if trackpadPixels != pixels {
+            holdPicture(from: trackpadPixels, to: pixels)
+            trackpadPixels = pixels
+        }
+        holdBox.window = windowSize
+    }
+
+    /// How long the picture is held at its old size at most (`holdPicture`). The Mac's
+    /// reshaped picture comes about a second after the pane settles (400 ms here, a quarter
+    /// second's debounce and the reshape on the Mac).
+    private static let pictureHoldLimit: Duration = .seconds(2)
+
+    /// The picture's keyboard-down pane changed from `old` to `new` (both in pixels). In the
+    /// same window (the pad, the key row coming or going) with a picture that filled the old
+    /// pane, the host is shaping its desktop for the phone (lid closed, no monitor) and a
+    /// picture of the new shape is on its way: until it comes (`screen.videoSize` changes)
+    /// or `pictureHoldLimit` passes, the old picture keeps its size and place
+    /// (`ScreenGeometry.Hold`) instead of shrinking into the new pane and growing back a
+    /// second later. A picture that did not fill the pane (a Mac with a screen of its own)
+    /// is fitted as always. Not in a new window (a turn, a fold, the hinge split): the old
+    /// size means nothing there. Not zoomed in, nor for a while after the keyboard came or
+    /// went: the keyboard has its own push (`KeyboardPush`), which is left exactly as it is
+    /// (the pane reports passing sizes as it goes, see `measurePane`), and wins over a hold.
+    private func holdPicture(from old: CGSize, to new: CGSize) {
+        if pictureHold != nil {
+            // A further step of the same change keeps the hold and its size; a pane back where
+            // the hold began needs none (the fit is the held picture).
+            if new == holdBox.origin || holdBox.window != windowSize { endPictureHold() } else { armPictureHold() }
+            return
+        }
+        let video = screen.videoSize
+        // Same width too: the pad and the key row only ever take height from the pane, and a
+        // turn can be measured before `windowSize` has caught up with it.
+        guard holdBox.window == windowSize, abs(new.width - old.width) < 1, screenOn, client.isConnected, !hingeLayout, screenZoom == 1,
+              !inputState.keyboardShown, Date().timeIntervalSince(keyboardToggledAt) > 1.5,
+              old.width > 0, old.height > 0, new.width > 0, new.height > 0, video.width > 0, video.height > 0,
+              abs((video.width / video.height) / (old.width / old.height) - 1) < 0.02 else { return }
+        let pane = CGSize(width: old.width / displayScale, height: old.height / displayScale)
+        holdBox.origin = old
+        pictureHold = ScreenGeometry.Hold(video: video, size: ScreenGeometry.home(for: video, in: pane).size)
+        armPictureHold()
+    }
+
+    /// (Re)starts the hold's time limit.
+    private func armPictureHold() {
+        holdBox.task?.cancel()
+        holdBox.task = Task {
+            try? await Task.sleep(for: Self.pictureHoldLimit)
+            guard !Task.isCancelled else { return }
+            endPictureHold()
+        }
+    }
+
+    /// Back to fitting the picture: the new picture came, the time is up, or whatever the
+    /// hold was for has changed (window, picture, connection, zoom, keyboard).
+    private func endPictureHold() {
+        holdBox.task?.cancel()
+        holdBox.task = nil
+        if pictureHold != nil { pictureHold = nil }
     }
 
     /// What to say while the picture is wanted but not arriving.
@@ -1365,6 +1436,15 @@ private final class DeskBox {
     var sent: Size?
     var resting = CGSize.zero
     var window = CGSize.zero
+}
+
+/// The picture hold's bookkeeping (`holdPicture`), held by reference like `TaskBox`: the
+/// window the pane was last measured in, the pane (in pixels) the hold was taken from, and
+/// its time limit.
+private final class HoldBox {
+    var window = CGSize.zero
+    var origin = CGSize.zero
+    var task: Task<Void, Never>?
 }
 
 /// A pending task held by reference, so replacing it does not count as a state change.
