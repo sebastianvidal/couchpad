@@ -231,8 +231,8 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   captures again: an echo loop. Untested; keep `screenSound` off on simulators
   (`defaults write com.seb.Couchpad screenSound -bool false`).
 - Windows ignores `v`/`M`; the phone hides the toggle for Windows hosts.
-- Lid closed (`VirtualScreen.swift`, driven by `checkLid` in ScreenStreamer, once a second
-  while a phone wants the picture):
+- Lid closed, or no screen at all (`VirtualScreen.swift`, driven by `checkLid` in
+  ScreenStreamer, once a second while a phone wants the picture):
   - **The problem:** a closed MacBook with no monitor goes dark 10 s after every touch, then
     1 s later the next touch wakes it ('Clamshell Sleep' in `pmset -g log`). The stream died
     each time. No power assertion stops that, and `caffeinate -s -d -u` didn't either.
@@ -242,12 +242,67 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   - **Wake first:** wake the displays (user activity), then add the virtual display about 2 s
     later. One made while they sleep gives ScreenCaptureKit only blank frames; the encoder's
     log then says "encoded 0".
-  - **Where it goes:** just after closing, the built-in display is still active. The virtual
+  - **When:** "headless" = no real screen online. Real = online, not ours, not the stand-in
+    (`isStandIn`: vendor/model/serial all 0), not the built-in behind a closed lid
+    (`realScreenOn`). So a desktop Mac with no monitor counts too; lid open (built-in online,
+    asleep or not) never does. The battery rule applies only with the lid closed.
+  - **Where it goes (legacy, phone sent no `v d`):** just after closing, the built-in display
+    is still active. The virtual
     one then mirrors it, so the capture stays on the main (built-in) display and nothing moves.
     Made as an extended display it sits at x = -1440 with an empty desktop, which is what the
     phone showed. Closed for a while, the built-in drops out and macOS has a 1920×1080
     stand-in; the virtual display then becomes the only screen, switched to 1440×900 HiDPI.
-  - **Logs:** the host logs `Screen: lid closed …` lines and the first 3 s of frame statuses.
+    On the user's MacBook the built-in display stayed online as mirror master indefinitely,
+    so mirroring is the usual case, not a brief one.
+  - **Shaped for the phone:** the phone sends `v d <w> <h>`: the desktop in points it wants
+    when it is the only screen = keyboard-down picture pane × k, k from the setting
+    `headlessTextSize` (0–3 → 2.2/1.8/1.5/1.25 in `headlessScales`, default 1 = 1.8; the
+    user found 1.5 a little too zoomed in; 1.5 on a 3× phone makes the Mac's 2× pixels the
+    pane's). Then, on the phone before sending, a width under `headlessMinWidth` (index into
+    `headlessMinWidths` 800/1024/1280/1440 pt, default 1 = 1024) scales both sides up to
+    reach it: upright a folded Duo's 450 pt pane × 1.8 is ~810 wide, too narrow for many Mac
+    apps and pages. Sent before the first `v 1`, again when the pane changes shape (rotation, fold,
+    hinge split, pad or key row), never for the keyboard; old hosts and Windows ignore it.
+    The host takes the latest sender's among sessions with the picture (`syncDesk`), clamps
+    it (`pointSize(forDesk:)`: scaled up to ≥ 800×600, down to ≤ 1920 a side, even sides),
+    and makes the display that size (modes 2W×2H and W×H, hiDPI 1, maxPixels 3840). The 600
+    floor: macOS offered an 800×520 HiDPI mode and refused to switch to it (error 1001, every
+    try), while 800×638 and up worked; 600 is the classic minimum, not a measured threshold.
+    `useHiDPIMode` tries every matching mode, usable-for-desktop ones first. Shaped, the
+    BUILT-IN mirrors the VIRTUAL one (virtual is master and the main display, like "optimise
+    for" in System Settings); if that configuration fails it falls back to the legacy
+    mirror. No `v d` from any watching phone: back to legacy 1440×900.
+    `fixModeIfAlone` switches the mode at most twice per size, so a switch that doesn't
+    stick can't restart the stream forever.
+  - **Reshape sequence** (`reshape` in ScreenStreamer), only while someone watches, compared
+    with the last target, not what macOS did: a new `v d` schedules a `checkLid` 0.25 s
+    later (`deskDebounce`: coalesces a burst from one layout pass; it can't catch fold
+    transients, ~0.5 s apart); the capture stops (`stopOnQueue`: no frame of a half-reshaped
+    display, which ScreenCaptureKit letterboxes into the old frame size; the phone keeps its
+    last frame, UDP pings go on regardless); resize in place (`apply` new settings, poll
+    every 0.1 s up to 1 s for the HiDPI mode), else made again under the other serial (1/2)
+    before the old one goes; arrange; poll up to 1 s until the display shows the size (mode
+    and bounds) and, shaped, is the main display; restart the stream (refreshes
+    `displayBounds` for the absolute pointer). `settlingUntil` (5 s safety) ends at that
+    restart, which runs `checkLid` again for a shape that came in meanwhile. While settling
+    no stream starts at all (`startOnQueue` defers a `v 1`, a failure retry or a wake to the
+    restart, `deferredStart`). A `v 1` while a reshape is only due defers if a stream is
+    running (the old picture plays on), else starts at once; if the shape goes back with no
+    reshape, `checkLid` starts the deferred box.
+  - **Phone's hold** (`holdPicture` in ContentView, `ScreenGeometry.Hold`): when the
+    keyboard-down pane changes height in the same window (pad, key row) and the picture
+    filled the old pane (video aspect within 2% of the pane's: that is how the phone knows
+    the host shapes for it; no protocol), the picture keeps its old size, top-anchored and
+    centred across, cropped or with a gap, instead of fitting, in ScreenView and the
+    trackpad's pointer mapping alike. Ends when `screen.videoSize` changes or after 3 s
+    (snaps to the fit; the picture's layout has no animation to reuse), and on a window
+    change, hinge, picture off, phase change, zoom or keyboard toggle; a pane back at the
+    hold's origin ends it too. Never zoomed, half open, with the keyboard up or within 1.5 s
+    of it moving; any push wins over a hold. The phone sends `v d` 400 ms after the pane
+    settles, so the new picture lands ~1.6 s in; 3 s leaves room for a slow Wi-Fi moment.
+  - **Logs:** the host logs `Screen: no screen of its own …`, `Screen: virtual display is …`
+    (says whether it is the main display), `wants a WxH desktop`, and the first 3 s of frame
+    statuses.
     If the stand-in is ever mistaken for a monitor, it logs `lid closed onto a monitor` with
     every display's vendor/model/serial.
   - **Battery:** closed-display mode needs the charger. On battery the Mac clamshell-sleeps
@@ -256,6 +311,16 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
     could override it.
   - **Testing:** testing needs the user to close the lid; this session can't. A small ObjC test
     program creating a CGVirtualDisplay works for experiments (see the header for the classes).
+  - **Tested** by the user, lid closed, macOS 27.2, M4 Pro MacBook, every phone position:
+    the shaped arrangement works (built-in mirrors the virtual one, virtual is the main
+    display); resize in place works every time, the recreate fallback never ran. 800×520 was
+    refused in HiDPI; with the 600 floor every size takes HiDPI, 924×600 included. A reshape
+    takes ~0.9 s from `v d` to the stream's restart. Unfolding sends two shapes ~0.5 s apart
+    and both are reshaped.
+  - **Untested:** a desktop Mac with no monitor (does it get the stand-in, do the displays
+    need waking), the recreate fallback, switching between legacy and shaped, and, until the
+    user tries them, the phone's hold, the capture stopping during a reshape, the deferral
+    while settling, the 0.25 s debounce and `headlessMinWidth`.
 
 ## Commits
 Attribution trailer per the session's reminder. Development work goes on a branch with a

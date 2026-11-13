@@ -19,6 +19,26 @@ final class AppSettings: ObservableObject {
     /// Picture resolution as a share of the trackpad's pixels: 0 half, 1 two thirds, 2 full.
     /// Fewer pixels mean smaller frames, which is what latency over Wi-Fi comes down to.
     @Published var screenQuality: Int { didSet { save("screenQuality", screenQuality) } }
+    /// How big things are on a Mac with no screen of its own (lid closed and no monitor, or a
+    /// desktop Mac without one), where the phone's picture is the only screen: 0 small, 1
+    /// medium, 2 large, 3 largest, an index into `headlessScales`. The Mac's desktop takes the
+    /// pane's shape at that many points per pane point: fewer points, bigger text.
+    @Published var headlessTextSize: Int { didSet { save("headlessTextSize", headlessTextSize) } }
+    /// Desktop points per point of the picture's pane, by `headlessTextSize`. Large (1.5) on
+    /// a 3× phone makes the Mac's 2× pixels exactly the pane's; Medium, the default, gives
+    /// more desktop (Large was a little too zoomed in for the user).
+    static let headlessScales = [2.2, 1.8, 1.5, 1.25]
+    /// The scale for `headlessTextSize`, whatever is stored there.
+    var headlessScale: Double { Self.headlessScales[max(0, min(Self.headlessScales.count - 1, headlessTextSize))] }
+    /// The narrowest desktop the Mac gets when the phone is its only screen, an index into
+    /// `headlessMinWidths`. Upright the pane is narrow (a folded Duo's 450 points × 1.8 is
+    /// about 810), too narrow for many Mac apps and web pages: below this width the desktop is
+    /// scaled up as a whole, keeping the pane's shape, and text gets smaller there.
+    @Published var headlessMinWidth: Int { didSet { save("headlessMinWidth", headlessMinWidth) } }
+    /// Widths in points for `headlessMinWidth`.
+    static let headlessMinWidths = [800, 1024, 1280, 1440]
+    /// The width for `headlessMinWidth`, whatever is stored there.
+    var headlessMinWidthPoints: Int { Self.headlessMinWidths[max(0, min(Self.headlessMinWidths.count - 1, headlessMinWidth))] }
     /// The on-screen controller (stick, look surface, buttons) in place of the trackpad.
     @Published var showController: Bool { didSet { save("showController", showController) } }
     /// The key row (F1–F12 bar, esc, tab, fn, the modifiers): under the trackpad or picture,
@@ -49,6 +69,8 @@ final class AppSettings: ObservableObject {
         screenSound = d.object(forKey: "screenSound") as? Bool ?? true
         tapToPoint = d.object(forKey: "tapToPoint") as? Bool ?? false
         screenQuality = d.object(forKey: "screenQuality") as? Int ?? 1
+        headlessTextSize = d.object(forKey: "headlessTextSize") as? Int ?? 1
+        headlessMinWidth = d.object(forKey: "headlessMinWidth") as? Int ?? 1
         showController = d.object(forKey: "showController") as? Bool ?? false
         showKeyRow = d.object(forKey: "showKeyRow") as? Bool ?? true
         padOverlay = d.object(forKey: "padOverlay") as? Bool ?? false
