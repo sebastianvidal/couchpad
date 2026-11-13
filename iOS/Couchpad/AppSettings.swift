@@ -30,6 +30,15 @@ final class AppSettings: ObservableObject {
     static let headlessScales = [2.2, 1.8, 1.5, 1.25]
     /// The scale for `headlessTextSize`, whatever is stored there.
     var headlessScale: Double { Self.headlessScales[max(0, min(Self.headlessScales.count - 1, headlessTextSize))] }
+    /// The narrowest desktop the Mac gets when the phone is its only screen, an index into
+    /// `headlessMinWidths`. Upright the pane is narrow (a folded Duo's 450 points × 1.8 is
+    /// about 810), too narrow for many Mac apps and web pages: below this width the desktop is
+    /// scaled up as a whole, keeping the pane's shape, and text gets smaller there.
+    @Published var headlessMinWidth: Int { didSet { save("headlessMinWidth", headlessMinWidth) } }
+    /// Widths in points for `headlessMinWidth`.
+    static let headlessMinWidths = [800, 1024, 1280, 1440]
+    /// The width for `headlessMinWidth`, whatever is stored there.
+    var headlessMinWidthPoints: Int { Self.headlessMinWidths[max(0, min(Self.headlessMinWidths.count - 1, headlessMinWidth))] }
     /// The on-screen controller (stick, look surface, buttons) in place of the trackpad.
     @Published var showController: Bool { didSet { save("showController", showController) } }
     /// The key row (F1–F12 bar, esc, tab, fn, the modifiers): under the trackpad or picture,
@@ -61,6 +70,7 @@ final class AppSettings: ObservableObject {
         tapToPoint = d.object(forKey: "tapToPoint") as? Bool ?? false
         screenQuality = d.object(forKey: "screenQuality") as? Int ?? 1
         headlessTextSize = d.object(forKey: "headlessTextSize") as? Int ?? 1
+        headlessMinWidth = d.object(forKey: "headlessMinWidth") as? Int ?? 1
         showController = d.object(forKey: "showController") as? Bool ?? false
         showKeyRow = d.object(forKey: "showKeyRow") as? Bool ?? true
         padOverlay = d.object(forKey: "padOverlay") as? Bool ?? false

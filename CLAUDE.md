@@ -258,7 +258,10 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
     when it is the only screen = keyboard-down picture pane × k, k from the setting
     `headlessTextSize` (0–3 → 2.2/1.8/1.5/1.25 in `headlessScales`, default 1 = 1.8; the
     user found 1.5 a little too zoomed in; 1.5 on a 3× phone makes the Mac's 2× pixels the
-    pane's). Sent before the first `v 1`, again when the pane changes shape (rotation, fold,
+    pane's). Then, on the phone before sending, a width under `headlessMinWidth` (index into
+    `headlessMinWidths` 800/1024/1280/1440 pt, default 1 = 1024) scales both sides up to
+    reach it: upright a folded Duo's 450 pt pane × 1.8 is ~810 wide, too narrow for many Mac
+    apps and pages. Sent before the first `v 1`, again when the pane changes shape (rotation, fold,
     hinge split, pad or key row), never for the keyboard; old hosts and Windows ignore it.
     The host takes the latest sender's among sessions with the picture (`syncDesk`), clamps
     it (`pointSize(forDesk:)`: scaled up to ≥ 800×600, down to ≤ 1920 a side, even sides),
@@ -291,12 +294,12 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
     filled the old pane (video aspect within 2% of the pane's: that is how the phone knows
     the host shapes for it; no protocol), the picture keeps its old size, top-anchored and
     centred across, cropped or with a gap, instead of fitting, in ScreenView and the
-    trackpad's pointer mapping alike. Ends when `screen.videoSize` changes or after 2 s
+    trackpad's pointer mapping alike. Ends when `screen.videoSize` changes or after 3 s
     (snaps to the fit; the picture's layout has no animation to reuse), and on a window
     change, hinge, picture off, phase change, zoom or keyboard toggle; a pane back at the
     hold's origin ends it too. Never zoomed, half open, with the keyboard up or within 1.5 s
     of it moving; any push wins over a hold. The phone sends `v d` 400 ms after the pane
-    settles, so the new picture lands ~1.5 s in: little margin under 2 s.
+    settles, so the new picture lands ~1.6 s in; 3 s leaves room for a slow Wi-Fi moment.
   - **Logs:** the host logs `Screen: no screen of its own …`, `Screen: virtual display is …`
     (says whether it is the main display), `wants a WxH desktop`, and the first 3 s of frame
     statuses.
@@ -317,7 +320,7 @@ Never ship a build whose `swift build` errored; `build.sh` exits non-zero on fai
   - **Untested:** a desktop Mac with no monitor (does it get the stand-in, do the displays
     need waking), the recreate fallback, switching between legacy and shaped, and, until the
     user tries them, the phone's hold, the capture stopping during a reshape, the deferral
-    while settling and the 0.25 s debounce.
+    while settling, the 0.25 s debounce and `headlessMinWidth`.
 
 ## Commits
 Attribution trailer per the session's reminder. Development work goes on a branch with a

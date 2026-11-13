@@ -313,6 +313,9 @@ struct ContentView: View {
             // Only the Mac's desktop changes; the stream stays as it is.
             if client.isConnected, screenOn, trackpadPixels.width > 0 { sendDesk() }
         }
+        .onChange(of: settings.headlessMinWidth) { _, _ in
+            if client.isConnected, screenOn, trackpadPixels.width > 0 { sendDesk() }
+        }
         .onChange(of: screenZoom) { _, _ in
             endPictureHold()
             // Zoomed in, the pane's pixels are spread thin: once the fingers settle, ask for
@@ -454,7 +457,11 @@ struct ContentView: View {
             desk.resting = pane
             desk.window = windowSize
         }
-        let scale = settings.headlessScale
+        var scale = settings.headlessScale
+        // Narrower than the setting's minimum (upright, mostly): both sides grow by the same
+        // factor, so the shape stays the pane's and only the text gets smaller.
+        let minWidth = Double(settings.headlessMinWidthPoints)
+        if pane.width > 0, pane.width * scale < minWidth { scale = minWidth / pane.width }
         let size = DeskBox.Size(width: Int((pane.width * scale).rounded()), height: Int((pane.height * scale).rounded()))
         guard size.width > 0, size.height > 0, desk.sent != size else { return }
         desk.sent = size
@@ -1071,9 +1078,10 @@ struct ContentView: View {
     }
 
     /// How long the picture is held at its old size at most (`holdPicture`). The Mac's
-    /// reshaped picture comes about a second after the pane settles (400 ms here, a quarter
-    /// second's debounce and the reshape on the Mac).
-    private static let pictureHoldLimit: Duration = .seconds(2)
+    /// reshaped picture comes about 1.6 s after the pane changes (400 ms here before `v d`
+    /// goes out, a quarter second's debounce, the reshape on the Mac, the first frame), so
+    /// this leaves room for a slow moment on the Wi-Fi.
+    private static let pictureHoldLimit: Duration = .seconds(3)
 
     /// The picture's keyboard-down pane changed from `old` to `new` (both in pixels). In the
     /// same window (the pad, the key row coming or going) with a picture that filled the old
@@ -1288,6 +1296,14 @@ struct ContentView: View {
                         }
                         .pickerStyle(.segmented)
                         Text("How big text is when the Mac has no screen of its own (a MacBook with its lid closed and no monitor, or a Mac with no monitor): its desktop then takes the picture's shape. With a screen attached the Mac keeps its own.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        Picker("Narrowest desktop with no Mac screen", selection: $settings.headlessMinWidth) {
+                            ForEach(AppSettings.headlessMinWidths.indices, id: \.self) { index in
+                                Text("\(AppSettings.headlessMinWidths[index])").tag(index)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        Text("The narrowest that desktop gets, in points. Held upright the picture is narrow: a wider desktop fits more apps and pages but makes text smaller there. Sideways nothing changes unless the picture is narrower than this.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                     Toggle("Touch the picture to point there", isOn: $settings.tapToPoint)
